@@ -47,7 +47,7 @@ export default async function RootLayout({
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
+          <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
             {/* Left side: logo, plus Log in / Sign up when signed out. */}
             <div className="flex items-center gap-2 sm:gap-3">
               <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
@@ -106,7 +106,7 @@ export default async function RootLayout({
           </div>
 
           {profile?.role === "creator" && (
-            <div className="mx-auto max-w-3xl px-4 pb-2 sm:hidden">
+            <div className="mx-auto max-w-6xl px-4 pb-2 sm:hidden">
               <Link
                 href="/creator"
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"
@@ -117,7 +117,7 @@ export default async function RootLayout({
           )}
         </header>
 
-        <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       </body>
     </html>
   );

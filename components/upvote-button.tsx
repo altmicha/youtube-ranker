@@ -66,12 +66,12 @@ export function UpvoteButton({
         onClick={handleClick}
         disabled={isPending}
         title={!isLoggedIn ? "Sign in to upvote" : undefined}
-        className={cn("flex-col gap-0 px-3 py-1.5 leading-tight", upvoted && "shadow")}
+        className={cn("flex-col gap-0 px-2.5 py-1 leading-tight", upvoted && "shadow")}
       >
-        <span aria-hidden className="text-base leading-none">
+        <span aria-hidden className="text-sm leading-none">
           ▲
         </span>
-        <span className="text-[11px] font-semibold">{count}</span>
+        <span className="text-[10px] font-semibold">{count}</span>
       </Button>
       {error && (
         <span className="max-w-[90px] text-center text-[10px] text-destructive">

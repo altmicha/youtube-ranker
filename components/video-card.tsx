@@ -10,8 +10,8 @@ export function VideoCard({
   action: React.ReactNode;
 }) {
   return (
-    <Card className="overflow-hidden transition-shadow hover:shadow-md">
-      <div className="flex items-center gap-4 p-3 sm:p-4">
+    <Card className="overflow-hidden transition-shadow hover:shadow-sm">
+      <div className="flex items-center gap-2.5 p-2">
         <a
           href={`https://www.youtube.com/watch?v=${video.youtube_id}`}
           target="_blank"
@@ -23,11 +23,11 @@ export function VideoCard({
             <img
               src={video.thumbnail_url}
               alt=""
-              className="h-16 w-28 rounded-lg object-cover sm:h-20 sm:w-36"
+              className="h-10 w-[72px] rounded object-cover sm:h-12 sm:w-[85px]"
             />
           ) : (
-            <div className="flex h-16 w-28 items-center justify-center rounded-lg bg-muted text-[10px] text-muted-foreground sm:h-20 sm:w-36">
-              No thumbnail
+            <div className="flex h-10 w-[72px] items-center justify-center rounded bg-muted text-[9px] text-muted-foreground sm:h-12 sm:w-[85px]">
+              No thumb
             </div>
           )}
         </a>
@@ -37,23 +37,25 @@ export function VideoCard({
             href={`https://www.youtube.com/watch?v=${video.youtube_id}`}
             target="_blank"
             rel="noreferrer"
-            className="line-clamp-2 text-sm font-medium leading-snug hover:underline sm:text-base"
+            className="line-clamp-1 text-xs font-medium leading-snug hover:underline sm:text-sm"
           >
             {video.title ?? `youtube.com/watch?v=${video.youtube_id}`}
           </a>
           {video.channel_name && (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground sm:text-sm">
+            <p className="truncate text-[11px] text-muted-foreground">
               {video.channel_name}
             </p>
           )}
 
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline">{video.category}</Badge>
-            <Badge variant="muted" className="font-mono">
-              {video.submission_count}{" "}
-              {video.submission_count === 1 ? "submission" : "submissions"}
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+              {video.category}
             </Badge>
-            <Badge variant="muted" className="font-mono">
+            <Badge variant="muted" className="px-1.5 py-0 font-mono text-[10px]">
+              {video.submission_count}{" "}
+              {video.submission_count === 1 ? "sub" : "subs"}
+            </Badge>
+            <Badge variant="muted" className="px-1.5 py-0 font-mono text-[10px]">
               {video.vote_count} {video.vote_count === 1 ? "vote" : "votes"}
             </Badge>
           </div>

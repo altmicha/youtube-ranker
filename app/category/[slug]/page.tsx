@@ -43,7 +43,7 @@ export default async function CategoryPage({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <div>
         <Link
           href="/"
@@ -56,7 +56,7 @@ export default async function CategoryPage({
         </h1>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
         {videos?.map((video) => (
           <VideoCard
             key={video.id}
