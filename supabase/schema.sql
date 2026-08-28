@@ -517,6 +517,62 @@ $$;
 
 
 -- ---------------------------------------------------------
+-- 6b. Time-windowed category ranking.
+--
+-- Ranks videos in a category by how many submissions they got within
+-- a time window, not their all-time submission_count. p_since = null
+-- means "all time" (equivalent to the old plain query, and every
+-- video with at least one submission qualifies — trivially true).
+-- For a real window (daily/weekly/monthly), a video with zero
+-- submissions in that window is excluded entirely rather than shown
+-- at the bottom with a 0 — this is meant to answer "what's trending
+-- in the last day/week/month", not "list everything, mostly zeros".
+-- vote_count returned is still the video's all-time vote count
+-- (upvotes aren't windowed — see conversation requirement 6).
+-- ---------------------------------------------------------
+create function public.videos_ranked_by_category(
+  p_category public.video_category,
+  p_since timestamptz default null
+)
+returns table (
+  id uuid,
+  youtube_id text,
+  title text,
+  thumbnail_url text,
+  channel_name text,
+  category public.video_category,
+  view_count bigint,
+  like_count bigint,
+  dislike_count bigint,
+  submission_count integer,
+  vote_count integer,
+  is_removed boolean,
+  created_at timestamptz,
+  window_submission_count bigint
+)
+language sql
+stable
+as $$
+  select
+    v.id, v.youtube_id, v.title, v.thumbnail_url, v.channel_name, v.category,
+    v.view_count, v.like_count, v.dislike_count,
+    v.submission_count, v.vote_count, v.is_removed, v.created_at,
+    count(s.id) filter (
+      where p_since is null or s.created_at >= p_since
+    ) as window_submission_count
+  from public.videos v
+  left join public.submissions s on s.video_id = v.id
+  where v.category = p_category
+    and v.is_removed = false
+  group by v.id
+  having p_since is null
+      or count(s.id) filter (where s.created_at >= p_since) > 0
+  order by window_submission_count desc, v.submission_count desc
+  limit 50;
+$$;
+
+
+-- ---------------------------------------------------------
 -- 7. Helpful indexes
 -- ---------------------------------------------------------
 create index videos_submission_count_idx on public.videos (submission_count desc);
@@ -524,6 +580,7 @@ create index videos_is_removed_idx on public.videos (is_removed);
 create index videos_category_idx on public.videos (category);
 create index submissions_video_id_idx on public.submissions (video_id);
 create index submissions_user_id_idx on public.submissions (user_id);
+create index submissions_created_at_idx on public.submissions (created_at);
 create index votes_video_id_idx on public.votes (video_id);
 create index point_awards_recipient_id_idx on public.point_awards (recipient_id);
 create index video_creator_awards_creator_id_idx on public.video_creator_awards (creator_id);

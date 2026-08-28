@@ -261,6 +261,10 @@ export interface Database {
         Args: { p_video_id: string };
         Returns: undefined;
       };
+      videos_ranked_by_category: {
+        Args: { p_category: VideoCategory; p_since: string | null };
+        Returns: (Video & { window_submission_count: number })[];
+      };
     };
     Enums: {
       user_role: UserRole;
