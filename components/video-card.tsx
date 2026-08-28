@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { Video } from "@/lib/types/database.types";
+import { formatCount } from "@/lib/format";
 
 export function VideoCard({
   video,
@@ -9,6 +10,16 @@ export function VideoCard({
   video: Video;
   action: React.ReactNode;
 }) {
+  // Requirement 4: only include a stat if the API actually returned
+  // it — dislikeCount is almost always null (YouTube hid it publicly
+  // in Dec 2021), and view/like can be null if the stats fetch failed
+  // at submission time. Never show a fabricated 0.
+  const stats = [
+    video.view_count != null && `${formatCount(video.view_count)} views`,
+    video.like_count != null && `${formatCount(video.like_count)} likes`,
+    video.dislike_count != null && `${formatCount(video.dislike_count)} dislikes`,
+  ].filter(Boolean) as string[];
+
   return (
     <Card className="overflow-hidden transition-shadow hover:shadow-sm">
       <div className="flex items-center gap-2.5 p-2">
@@ -44,6 +55,11 @@ export function VideoCard({
           {video.channel_name && (
             <p className="truncate text-[11px] text-muted-foreground">
               {video.channel_name}
+            </p>
+          )}
+          {stats.length > 0 && (
+            <p className="truncate text-[11px] text-muted-foreground">
+              {stats.join(" · ")}
             </p>
           )}
 

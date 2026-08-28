@@ -91,6 +91,10 @@ create table public.videos (
   thumbnail_url     text,
   channel_name      text,
   category          public.video_category not null default 'Variety',
+  view_count        bigint,    -- from YouTube Data API; null if never fetched successfully
+  like_count        bigint,    -- same
+  dislike_count     bigint,    -- almost always null — YouTube hid this publicly in Dec 2021;
+                                -- only ever set from a real API value, never faked
   submission_count  integer not null default 0, -- denormalized, kept in sync by trigger
   vote_count        integer not null default 0, -- denormalized, kept in sync by trigger
   is_removed        boolean not null default false, -- soft-delete flag; see remove_video()
@@ -451,12 +455,21 @@ $$;
 -- 6. Helper: submit a video (creates the video row if new, then the
 --    submission) as one atomic call from the client.
 -- ---------------------------------------------------------
+-- Adding p_view_count/p_like_count/p_dislike_count changes this
+-- function's argument list, so Postgres would otherwise keep the old
+-- 5-argument version around as a separate overload (ambiguous for
+-- PostgREST) instead of replacing it — drop it explicitly first.
+drop function if exists public.submit_video(text, text, text, text, public.video_category);
+
 create function public.submit_video(
   p_youtube_id text,
   p_title text,
   p_thumbnail_url text,
   p_channel_name text,
-  p_category public.video_category
+  p_category public.video_category,
+  p_view_count bigint default null,
+  p_like_count bigint default null,
+  p_dislike_count bigint default null
 )
 returns public.submissions
 language plpgsql
@@ -472,12 +485,26 @@ begin
   -- YouTube API integration existed get filled in by a later fetch.
   -- category is intentionally NOT overwritten on conflict: it's a
   -- per-video attribute, and the first submitter's choice sticks.
-  insert into public.videos (youtube_id, title, thumbnail_url, channel_name, category)
-  values (p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category)
+  -- view/like/dislike counts, by contrast, ALWAYS take the freshest
+  -- successfully-fetched value (coalesce falls back to the existing
+  -- value only when this submission's fetch came back null) — stats
+  -- change over time, so newer numbers are always preferred, unlike
+  -- title/thumbnail/channel which just need filling in once.
+  insert into public.videos (
+    youtube_id, title, thumbnail_url, channel_name, category,
+    view_count, like_count, dislike_count
+  )
+  values (
+    p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category,
+    p_view_count, p_like_count, p_dislike_count
+  )
   on conflict (youtube_id) do update
     set title = coalesce(public.videos.title, excluded.title),
         thumbnail_url = coalesce(public.videos.thumbnail_url, excluded.thumbnail_url),
-        channel_name = coalesce(public.videos.channel_name, excluded.channel_name)
+        channel_name = coalesce(public.videos.channel_name, excluded.channel_name),
+        view_count = coalesce(excluded.view_count, public.videos.view_count),
+        like_count = coalesce(excluded.like_count, public.videos.like_count),
+        dislike_count = coalesce(excluded.dislike_count, public.videos.dislike_count)
   returning id into v_video_id;
 
   insert into public.submissions (video_id, user_id)

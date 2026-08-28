@@ -75,6 +75,9 @@ export interface Video {
   thumbnail_url: string | null;
   channel_name: string | null;
   category: VideoCategory;
+  view_count: number | null;
+  like_count: number | null;
+  dislike_count: number | null;
   submission_count: number;
   vote_count: number;
   is_removed: boolean;
@@ -236,6 +239,9 @@ export interface Database {
           p_thumbnail_url: string | null;
           p_channel_name: string | null;
           p_category: SelectableVideoCategory;
+          p_view_count?: number | null;
+          p_like_count?: number | null;
+          p_dislike_count?: number | null;
         };
         Returns: Submission;
       };

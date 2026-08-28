@@ -39,11 +39,11 @@ export async function submitVideo(
     return { error: "That doesn't look like a valid YouTube video URL." };
   }
 
-  // Fetch title/thumbnail/channel from the YouTube Data API v3.
+  // Fetch title/thumbnail/channel/stats from the YouTube Data API v3.
   // fetchYoutubeMetadata() never throws — it returns null on any
   // failure (missing key, network error, private/deleted video) — so
-  // a metadata failure never blocks the submission itself; we just
-  // fall through with nulls, same as before this feature existed.
+  // a metadata/stats failure never blocks the submission itself; we
+  // just fall through with nulls (requirement 6).
   const metadata = await fetchYoutubeMetadata(videoId);
 
   const supabase = await createClient();
@@ -52,14 +52,18 @@ export async function submitVideo(
   // inserts a submissions row for the current user. The DB's
   // unique(video_id, user_id) constraint stops the same user from
   // submitting the same video twice. If the video already exists,
-  // the category passed here is ignored — the first submitter's
-  // category choice sticks (see schema.sql).
+  // the category passed here is ignored (first submitter's choice
+  // sticks), but view/like/dislike counts always take this fresher
+  // fetch when available — see schema.sql.
   const { error } = await supabase.rpc("submit_video", {
     p_youtube_id: videoId,
     p_title: metadata?.title ?? null,
     p_thumbnail_url: metadata?.thumbnailUrl ?? null,
     p_channel_name: metadata?.channelName ?? null,
     p_category: category,
+    p_view_count: metadata?.viewCount ?? null,
+    p_like_count: metadata?.likeCount ?? null,
+    p_dislike_count: metadata?.dislikeCount ?? null,
   });
 
   if (error) {
