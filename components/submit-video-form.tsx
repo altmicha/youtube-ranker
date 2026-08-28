@@ -5,7 +5,7 @@ import { submitVideo } from "@/app/actions/videos";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { VIDEO_CATEGORIES, type VideoCategory } from "@/lib/types/database.types";
+import { SELECTABLE_CATEGORIES, type SelectableVideoCategory } from "@/lib/types/database.types";
 import { cn } from "@/lib/utils";
 
 export function SubmitVideoForm() {
@@ -13,7 +13,7 @@ export function SubmitVideoForm() {
   // Requirement 5: category is required — no default selected, so
   // submitting with the placeholder still in place is blocked by
   // `required` on the <select> plus the empty-string check below.
-  const [category, setCategory] = useState<VideoCategory | "">("");
+  const [category, setCategory] = useState<SelectableVideoCategory | "">("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -71,7 +71,7 @@ export function SubmitVideoForm() {
             <select
               required
               value={category}
-              onChange={(e) => setCategory(e.target.value as VideoCategory)}
+              onChange={(e) => setCategory(e.target.value as SelectableVideoCategory)}
               disabled={isPending}
               aria-label="Category"
               className={cn(
@@ -82,7 +82,7 @@ export function SubmitVideoForm() {
               <option value="" disabled>
                 Category…
               </option>
-              {VIDEO_CATEGORIES.map((c) => (
+              {SELECTABLE_CATEGORIES.map((c) => (
                 <option key={c} value={c} className="text-foreground">
                   {c}
                 </option>

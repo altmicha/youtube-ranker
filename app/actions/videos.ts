@@ -4,13 +4,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
-import { VIDEO_CATEGORIES, type VideoCategory } from "@/lib/types/database.types";
+import { SELECTABLE_CATEGORIES, type SelectableVideoCategory } from "@/lib/types/database.types";
 
 export type SubmitVideoResult = { error: string } | { success: true };
 
 export async function submitVideo(
   url: string,
-  category: VideoCategory
+  category: SelectableVideoCategory
 ): Promise<SubmitVideoResult> {
   // Feature: only logged-in users can submit. getCurrentProfile()
   // reads the session server-side, so this can't be bypassed from the
@@ -21,10 +21,11 @@ export async function submitVideo(
   }
 
   // Requirement 5: category is required. Re-validated here against
-  // the canonical list rather than trusting the client — a request
-  // built by hand (not through the <select>) with a bogus value would
-  // otherwise hit the DB's enum type and produce a confusing error.
-  if (!VIDEO_CATEGORIES.includes(category)) {
+  // the currently-selectable list (not the full DB enum, which still
+  // includes retired categories like "Variety" used only as an
+  // internal fallback) — a request built by hand with a retired or
+  // bogus value is rejected here rather than silently succeeding.
+  if (!SELECTABLE_CATEGORIES.includes(category)) {
     return { error: "Choose a valid category." };
   }
 

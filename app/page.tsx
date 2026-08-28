@@ -1,28 +1,13 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { SubmitVideoForm } from "@/components/submit-video-form";
 import { CategoryGrid } from "@/components/category-grid";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { VideoCategory } from "@/lib/types/database.types";
 
 export default async function HomePage() {
-  const [profile, supabase] = [await getCurrentProfile(), await createClient()];
-
-  // Lightweight: just the category column for every non-removed
-  // video, so we can show a per-category count on each poster
-  // without pulling full video rows onto the homepage.
-  const { data: categoryRows } = await supabase
-    .from("videos")
-    .select("category")
-    .eq("is_removed", false);
-
-  const counts: Partial<Record<VideoCategory, number>> = {};
-  for (const row of categoryRows ?? []) {
-    counts[row.category] = (counts[row.category] ?? 0) + 1;
-  }
+  const profile = await getCurrentProfile();
 
   return (
     <div className="flex flex-col gap-6">
@@ -43,7 +28,7 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      <CategoryGrid counts={counts} />
+      <CategoryGrid />
 
       {profile ? (
         <SubmitVideoForm />

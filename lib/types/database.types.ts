@@ -13,6 +13,13 @@
 
 export type UserRole = "user" | "creator";
 
+// All 12 values that exist in the Postgres video_category enum.
+// Some of these are no longer offered in the UI (see
+// SELECTABLE_CATEGORIES below) but a video row can still legitimately
+// carry one — either a legacy video submitted before a category was
+// removed, or one migrated into "Variety" as the hidden fallback
+// bucket. This is what Video.category and the Postgres enum are
+// typed against, so reads/writes always match what the DB can hold.
 export const VIDEO_CATEGORIES = [
   "Gaming",
   "Funny",
@@ -29,6 +36,27 @@ export const VIDEO_CATEGORIES = [
 ] as const;
 
 export type VideoCategory = (typeof VIDEO_CATEGORIES)[number];
+
+// Categories users can currently browse (homepage grid, /category/*
+// routes) or pick when submitting a video. "All", "Just Chatting",
+// "IRL", "Slots", and "Variety" were removed from the UI — existing
+// videos in those categories were migrated to "Variety" (see
+// supabase/schema.sql), which stays a valid DB value and now serves
+// only as an invisible catch-all: those videos are still visible on
+// /videos (unfiltered) but have no category tile or route of their
+// own anymore.
+export const SELECTABLE_CATEGORIES = [
+  "Gaming",
+  "Funny",
+  "LSF",
+  "Cop Slop",
+  "React",
+  "Sports",
+  "Horror",
+  "Music",
+] as const satisfies readonly VideoCategory[];
+
+export type SelectableVideoCategory = (typeof SELECTABLE_CATEGORIES)[number];
 
 export interface Profile {
   id: string;
@@ -207,7 +235,7 @@ export interface Database {
           p_title: string | null;
           p_thumbnail_url: string | null;
           p_channel_name: string | null;
-          p_category: VideoCategory;
+          p_category: SelectableVideoCategory;
         };
         Returns: Submission;
       };

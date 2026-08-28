@@ -3,44 +3,38 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
-import { VIDEO_CATEGORIES, type VideoCategory } from "@/lib/types/database.types";
+import { SELECTABLE_CATEGORIES, type SelectableVideoCategory } from "@/lib/types/database.types";
 import { categorySlug } from "@/lib/categories";
 
-const GRADIENTS: Record<VideoCategory, string> = {
+// Gradient class strings live here (a scanned path — see
+// tailwind.config.ts content globs) so Tailwind actually generates
+// the CSS for them. Only the 8 currently-browsable categories have
+// an entry — "All", "Just Chatting", "IRL", "Slots", and "Variety"
+// were removed from the UI (see conversation), so there's nothing
+// left that needs a gradient for them here.
+const GRADIENTS: Record<SelectableVideoCategory, string> = {
   Gaming: "bg-gradient-to-br from-violet-500 to-purple-700",
   Funny: "bg-gradient-to-br from-rose-500 to-pink-700",
   LSF: "bg-gradient-to-br from-amber-500 to-orange-700",
   "Cop Slop": "bg-gradient-to-br from-emerald-500 to-teal-700",
   React: "bg-gradient-to-br from-sky-500 to-blue-700",
-  IRL: "bg-gradient-to-br from-fuchsia-500 to-purple-800",
-  Slots: "bg-gradient-to-br from-lime-500 to-green-700",
   Sports: "bg-gradient-to-br from-red-500 to-rose-800",
   Horror: "bg-gradient-to-br from-slate-600 to-slate-900",
-  Variety: "bg-gradient-to-br from-indigo-500 to-blue-800",
   Music: "bg-gradient-to-br from-cyan-500 to-sky-700",
-  "Just Chatting": "bg-gradient-to-br from-orange-500 to-red-700",
 };
-const ALL_GRADIENT = "bg-gradient-to-br from-zinc-500 to-zinc-800";
-
-interface CategoryTile {
-  slug: string;
-  name: string;
-  gradient: string;
-  count?: number;
-}
 
 // Poster for one card: tries /public/categories/<slug>.jpg first, and
 // silently falls back to the existing gradient (still rendered
 // underneath, always) if that file 404s or hasn't been added yet.
 // Each instance owns its own imgError state since map items each get
-// their own component instance/hooks.
+// their own component instance/hooks. No text overlay on the image
+// itself — the category name is rendered below the poster instead
+// (see the Link markup in CategoryGrid).
 function CategoryPoster({
   slug,
-  name,
   gradient,
 }: {
   slug: string;
-  name: string;
   gradient: string;
 }) {
   const [imgError, setImgError] = useState(false);
@@ -56,36 +50,16 @@ function CategoryPoster({
           className="absolute inset-0 h-full w-full object-cover"
         />
       )}
-      {/* Small label on top of the image, not a large centered
-          heading — requirement 6. Semi-transparent backing so it
-          stays readable over any cover image. */}
-      <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-        {name}
-      </span>
     </div>
   );
 }
 
-export function CategoryGrid({
-  counts,
-}: {
-  counts?: Partial<Record<VideoCategory, number>>;
-}) {
+export function CategoryGrid() {
   const [query, setQuery] = useState("");
 
-  const totalCount = counts
-    ? Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0)
-    : undefined;
-
-  const categories: CategoryTile[] = [
-    { slug: "all", name: "All", gradient: ALL_GRADIENT, count: totalCount },
-    ...VIDEO_CATEGORIES.map((name) => ({
-      slug: categorySlug(name),
-      name,
-      gradient: GRADIENTS[name],
-      count: counts?.[name],
-    })),
-  ].filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const categories = SELECTABLE_CATEGORIES.filter((name) =>
+    name.toLowerCase().includes(query.trim().toLowerCase())
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -103,24 +77,12 @@ export function CategoryGrid({
       </div>
 
       <div className="flex flex-wrap gap-3">
-        {categories.map((category) => {
-          const href = category.slug === "all" ? "/videos" : `/category/${category.slug}`;
+        {categories.map((name) => {
+          const slug = categorySlug(name);
           return (
-            <Link
-              key={category.slug}
-              href={href}
-              className="block w-36 no-underline"
-            >
-              <CategoryPoster
-                slug={category.slug}
-                name={category.name}
-                gradient={category.gradient}
-              />
-              {!!category.count && (
-                <div className="mt-1 text-xs text-zinc-400">
-                  {category.count} {category.count === 1 ? "video" : "videos"}
-                </div>
-              )}
+            <Link key={slug} href={`/category/${slug}`} className="block w-36 no-underline">
+              <CategoryPoster slug={slug} gradient={GRADIENTS[name]} />
+              <div className="mt-1 truncate text-sm">{name}</div>
             </Link>
           );
         })}

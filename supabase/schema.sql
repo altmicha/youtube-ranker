@@ -72,6 +72,17 @@ create type public.video_category as enum (
   'Gaming', 'Funny', 'LSF', 'Cop Slop', 'React', 'IRL', 'Slots',
   'Sports', 'Horror', 'Variety', 'Music', 'Just Chatting'
 );
+-- NOTE: "All", "Just Chatting", "IRL", "Slots", and "Variety" are no
+-- longer offered as browsable/selectable categories in the app (see
+-- lib/types/database.types.ts's SELECTABLE_CATEGORIES). This enum
+-- type intentionally still contains all 12 values rather than having
+-- 4 removed — shrinking a Postgres enum requires recreating the type
+-- and re-pointing every dependent column/function, which is a much
+-- riskier migration than just hiding values in the UI. "Variety"
+-- doubles as the hidden fallback bucket: see the one-time data
+-- migration below, which moves any video that was in a since-removed
+-- category into 'Variety' so it keeps showing on /videos (unfiltered)
+-- without a category tile/route of its own.
 
 create table public.videos (
   id                uuid primary key default gen_random_uuid(),
@@ -87,6 +98,16 @@ create table public.videos (
 );
 
 alter table public.videos enable row level security;
+
+-- One-time data migration: move any existing video that was in a
+-- category removed from the UI ("Just Chatting", "IRL", "Slots")
+-- into "Variety", the hidden fallback bucket. "Variety" itself needs
+-- no migration (it stays "Variety"); "All" was never a stored value.
+-- Safe to run more than once — it only ever touches rows still in
+-- one of those three categories.
+update public.videos
+  set category = 'Variety'
+  where category in ('Just Chatting', 'IRL', 'Slots');
 
 create policy "videos are publicly readable"
   on public.videos for select
