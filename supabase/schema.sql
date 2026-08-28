@@ -1,0 +1,438 @@
+-- =========================================================
+-- YouTube Ranker — full schema, RLS policies, and triggers
+-- Run this in the Supabase SQL editor on a fresh project.
+-- =========================================================
+
+-- ---------------------------------------------------------
+-- 1. PROFILES  (one row per auth.users row; holds role + points)
+-- ---------------------------------------------------------
+create type public.user_role as enum ('user', 'creator');
+
+create table public.profiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  email       text not null,
+  display_name text,
+  avatar_url  text,
+  role        public.user_role not null default 'user',
+  points      integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+-- Everyone (incl. anonymous) can read profiles — needed to show
+-- submitter names, points balances, and the ranked list's authors.
+create policy "profiles are publicly readable"
+  on public.profiles for select
+  using (true);
+
+-- Users can update only their own display_name/avatar_url — NOT role
+-- or points (those are locked down below).
+create policy "users can update their own basic info"
+  on public.profiles for update
+  using (auth.uid() = id)
+  with check (
+    auth.uid() = id
+    and role = (select role from public.profiles where id = auth.uid())
+    and points = (select points from public.profiles where id = auth.uid())
+  );
+
+-- No direct insert policy for profiles: rows are created only by the
+-- handle_new_user trigger below (running as the table owner), so a
+-- client can never insert its own profile with an arbitrary role.
+
+-- Auto-create a profile row whenever someone signs up via Supabase Auth.
+create function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, display_name, avatar_url, role)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name'),
+    new.raw_user_meta_data->>'avatar_url',
+    'user'
+  );
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+
+-- ---------------------------------------------------------
+-- 2. VIDEOS  (one row per unique YouTube video)
+-- ---------------------------------------------------------
+create table public.videos (
+  id                uuid primary key default gen_random_uuid(),
+  youtube_id        text not null unique,      -- e.g. "dQw4w9WgXcQ"
+  title             text,
+  thumbnail_url     text,
+  channel_name      text,
+  submission_count  integer not null default 0, -- denormalized, kept in sync by trigger
+  vote_count        integer not null default 0, -- denormalized, kept in sync by trigger
+  created_at        timestamptz not null default now()
+);
+
+alter table public.videos enable row level security;
+
+create policy "videos are publicly readable"
+  on public.videos for select
+  using (true);
+
+-- Videos are only ever created through the submissions flow (see below),
+-- so there's no public insert/update policy here; writes happen via a
+-- SECURITY DEFINER function that also records the submission atomically.
+
+
+-- ---------------------------------------------------------
+-- 3. SUBMISSIONS  (who submitted which video, and when)
+-- ---------------------------------------------------------
+create table public.submissions (
+  id          uuid primary key default gen_random_uuid(),
+  video_id    uuid not null references public.videos(id) on delete cascade,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  -- one submission per user per video (resubmitting the same link twice
+  -- shouldn't count twice toward ranking)
+  unique (video_id, user_id)
+);
+
+alter table public.submissions enable row level security;
+
+create policy "submissions are publicly readable"
+  on public.submissions for select
+  using (true);
+
+create policy "users can submit as themselves"
+  on public.submissions for insert
+  with check (auth.uid() = user_id);
+
+-- Keep videos.submission_count in sync automatically.
+create function public.handle_submission_change()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    update public.videos
+      set submission_count = submission_count + 1
+      where id = new.video_id;
+    return new;
+  elsif tg_op = 'DELETE' then
+    update public.videos
+      set submission_count = greatest(submission_count - 1, 0)
+      where id = old.video_id;
+    return old;
+  end if;
+  return null;
+end;
+$$;
+
+create trigger on_submission_change
+  after insert or delete on public.submissions
+  for each row execute function public.handle_submission_change();
+
+
+-- ---------------------------------------------------------
+-- 4. VOTES  (one upvote per user per video)
+-- ---------------------------------------------------------
+create table public.votes (
+  id          uuid primary key default gen_random_uuid(),
+  video_id    uuid not null references public.videos(id) on delete cascade,
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  unique (video_id, user_id)  -- enforces "one vote per user per video"
+);
+
+alter table public.votes enable row level security;
+
+create policy "votes are publicly readable"
+  on public.votes for select
+  using (true);
+
+create policy "users can vote as themselves"
+  on public.votes for insert
+  with check (auth.uid() = user_id);
+
+create policy "users can remove their own vote"
+  on public.votes for delete
+  using (auth.uid() = user_id);
+
+create function public.handle_vote_change()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    update public.videos set vote_count = vote_count + 1 where id = new.video_id;
+    return new;
+  elsif tg_op = 'DELETE' then
+    update public.videos set vote_count = greatest(vote_count - 1, 0) where id = old.video_id;
+    return old;
+  end if;
+  return null;
+end;
+$$;
+
+create trigger on_vote_change
+  after insert or delete on public.votes
+  for each row execute function public.handle_vote_change();
+
+
+-- ---------------------------------------------------------
+-- 5. POINT AWARDS  (audit log; creator -> submitter grants)
+-- ---------------------------------------------------------
+create table public.point_awards (
+  id             uuid primary key default gen_random_uuid(),
+  video_id       uuid not null references public.videos(id) on delete cascade,
+  submission_id  uuid not null references public.submissions(id) on delete cascade,
+  recipient_id   uuid not null references public.profiles(id) on delete cascade,
+  creator_id     uuid not null references public.profiles(id) on delete cascade,
+  points         integer not null check (points > 0),
+  created_at     timestamptz not null default now()
+);
+
+alter table public.point_awards enable row level security;
+
+create policy "point awards are publicly readable"
+  on public.point_awards for select
+  using (true);
+
+-- No direct insert policy: awards must go through award_points() or
+-- award_points_for_video() below, which check the caller is a creator
+-- AND increment the recipient's balance atomically. This prevents a
+-- client from inserting an award row and separately patching
+-- profiles.points out of sync (or at all, since profiles.points has
+-- no public update policy).
+--
+-- award_points() awards a single submission and is kept as a
+-- lower-level primitive. The Creator Dashboard's "Select & Award
+-- Points" button uses award_points_for_video() (defined below, after
+-- this table's policies) instead, since it also needs to enforce
+-- "once per creator per video" across every submitter it pays.
+create function public.award_points(
+  p_submission_id uuid,
+  p_points int
+)
+returns public.point_awards
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_caller_role public.user_role;
+  v_video_id uuid;
+  v_recipient_id uuid;
+  v_award public.point_awards;
+begin
+  select role into v_caller_role from public.profiles where id = auth.uid();
+  if v_caller_role is distinct from 'creator' then
+    raise exception 'Only creators can award points';
+  end if;
+
+  if p_points <= 0 then
+    raise exception 'Points must be positive';
+  end if;
+
+  select video_id, user_id into v_video_id, v_recipient_id
+    from public.submissions where id = p_submission_id;
+
+  if v_recipient_id is null then
+    raise exception 'Submission not found';
+  end if;
+
+  insert into public.point_awards (video_id, submission_id, recipient_id, creator_id, points)
+  values (v_video_id, p_submission_id, v_recipient_id, auth.uid(), p_points)
+  returning * into v_award;
+
+  update public.profiles
+    set points = points + p_points
+    where id = v_recipient_id;
+
+  return v_award;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
+-- 5b. Enforce "a creator can award points for a video only once".
+--
+-- One creator "award" click pays out every unique submitter of a
+-- video (multiple point_awards rows, one per submitter), so a unique
+-- constraint on point_awards itself can't express "only once" — it
+-- would block paying the 2nd, 3rd, etc. submitter in the same batch.
+-- Instead, this claim table holds exactly one row per (video, creator)
+-- pair: award_points_for_video() inserts into it FIRST, so a repeat
+-- attempt — even a near-simultaneous double click — fails on this
+-- table's primary key before any points are paid out twice.
+-- ---------------------------------------------------------
+create table public.video_creator_awards (
+  video_id    uuid not null references public.videos(id) on delete cascade,
+  creator_id  uuid not null references public.profiles(id) on delete cascade,
+  awarded_at  timestamptz not null default now(),
+  primary key (video_id, creator_id)
+);
+
+alter table public.video_creator_awards enable row level security;
+
+create policy "video creator awards are publicly readable"
+  on public.video_creator_awards for select
+  using (true);
+
+-- No public insert policy: rows are only ever created inside
+-- award_points_for_video() below.
+
+-- Awards p_points to every unique submitter of p_video_id, but only if
+-- this creator hasn't already awarded this video. This is what the
+-- "Select & Award Points" button calls.
+create function public.award_points_for_video(
+  p_video_id uuid,
+  p_points int default 10
+)
+returns integer
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_caller_role public.user_role;
+  v_awarded_count integer := 0;
+  r record;
+begin
+  select role into v_caller_role from public.profiles where id = auth.uid();
+  if v_caller_role is distinct from 'creator' then
+    raise exception 'Only creators can award points';
+  end if;
+
+  if p_points <= 0 then
+    raise exception 'Points must be positive';
+  end if;
+
+  -- Atomic claim. If this creator already awarded this video, this
+  -- insert raises a unique_violation (23505) and nothing below runs —
+  -- no partial/double payout is possible, including under a race.
+  insert into public.video_creator_awards (video_id, creator_id)
+  values (p_video_id, auth.uid());
+
+  -- One payout per unique submitter (first submission if someone
+  -- somehow submitted the same video more than once).
+  for r in
+    select distinct on (user_id) id as submission_id, user_id
+    from public.submissions
+    where video_id = p_video_id
+    order by user_id, created_at asc
+  loop
+    insert into public.point_awards (video_id, submission_id, recipient_id, creator_id, points)
+    values (p_video_id, r.submission_id, r.user_id, auth.uid(), p_points);
+
+    update public.profiles set points = points + p_points where id = r.user_id;
+
+    v_awarded_count := v_awarded_count + 1;
+  end loop;
+
+  return v_awarded_count;
+end;
+$$;
+
+-- Reverses award_points_for_video(): removes this creator's claim on
+-- the video, deletes the point_awards rows it created, and deducts
+-- those points back off each recipient's balance — all atomically, so
+-- a partial undo (points removed but claim still blocking a re-award,
+-- or vice versa) isn't possible.
+create function public.undo_award_for_video(p_video_id uuid)
+returns integer
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_caller_role public.user_role;
+  v_undone_count integer := 0;
+  r record;
+begin
+  select role into v_caller_role from public.profiles where id = auth.uid();
+  if v_caller_role is distinct from 'creator' then
+    raise exception 'Only creators can undo awards';
+  end if;
+
+  if not exists (
+    select 1 from public.video_creator_awards
+    where video_id = p_video_id and creator_id = auth.uid()
+  ) then
+    raise exception 'You have not awarded points for this video';
+  end if;
+
+  for r in
+    select recipient_id, points from public.point_awards
+    where video_id = p_video_id and creator_id = auth.uid()
+  loop
+    update public.profiles
+      set points = greatest(points - r.points, 0)
+      where id = r.recipient_id;
+    v_undone_count := v_undone_count + 1;
+  end loop;
+
+  delete from public.point_awards
+    where video_id = p_video_id and creator_id = auth.uid();
+
+  delete from public.video_creator_awards
+    where video_id = p_video_id and creator_id = auth.uid();
+
+  return v_undone_count;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
+-- 6. Helper: submit a video (creates the video row if new, then the
+--    submission) as one atomic call from the client.
+-- ---------------------------------------------------------
+create function public.submit_video(
+  p_youtube_id text,
+  p_title text,
+  p_thumbnail_url text,
+  p_channel_name text
+)
+returns public.submissions
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_video_id uuid;
+  v_submission public.submissions;
+begin
+  -- On conflict (video already submitted by someone else before),
+  -- backfill any metadata columns that are still null rather than
+  -- only ever touching title — lets an older row saved before the
+  -- YouTube API integration existed get filled in by a later fetch.
+  insert into public.videos (youtube_id, title, thumbnail_url, channel_name)
+  values (p_youtube_id, p_title, p_thumbnail_url, p_channel_name)
+  on conflict (youtube_id) do update
+    set title = coalesce(public.videos.title, excluded.title),
+        thumbnail_url = coalesce(public.videos.thumbnail_url, excluded.thumbnail_url),
+        channel_name = coalesce(public.videos.channel_name, excluded.channel_name)
+  returning id into v_video_id;
+
+  insert into public.submissions (video_id, user_id)
+  values (v_video_id, auth.uid())
+  returning * into v_submission;
+
+  return v_submission;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
+-- 7. Helpful indexes
+-- ---------------------------------------------------------
+create index videos_submission_count_idx on public.videos (submission_count desc);
+create index submissions_video_id_idx on public.submissions (video_id);
+create index submissions_user_id_idx on public.submissions (user_id);
+create index votes_video_id_idx on public.votes (video_id);
+create index point_awards_recipient_id_idx on public.point_awards (recipient_id);
+create index video_creator_awards_creator_id_idx on public.video_creator_awards (creator_id);
