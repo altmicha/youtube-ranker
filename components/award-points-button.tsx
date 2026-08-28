@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { awardPointsForVideo, undoAwardForVideo } from "@/app/actions/points";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 export function AwardPointsButton({
   videoId,
@@ -18,20 +20,17 @@ export function AwardPointsButton({
 
   function handleAward() {
     if (alreadyAwarded || isPending) return;
-
     setMessage(null);
     setIsError(false);
 
     startTransition(async () => {
       const result = await awardPointsForVideo(videoId);
-
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
         if (result.alreadyAwarded) setAlreadyAwarded(true);
         return;
       }
-
       setAlreadyAwarded(true);
       setMessage(
         result.awardedCount > 0
@@ -45,19 +44,16 @@ export function AwardPointsButton({
 
   function handleUndo() {
     if (!alreadyAwarded || isUndoing) return;
-
     setMessage(null);
     setIsError(false);
 
     startUndoTransition(async () => {
       const result = await undoAwardForVideo(videoId);
-
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
         return;
       }
-
       setAlreadyAwarded(false);
       setMessage(
         result.undoneCount > 0
@@ -73,30 +69,28 @@ export function AwardPointsButton({
     <div className="flex flex-col items-end gap-1">
       {alreadyAwarded ? (
         <div className="flex items-center gap-2">
-          <span className="whitespace-nowrap rounded-md border border-gray-200 bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-400">
+          <Badge variant="muted" className="whitespace-nowrap">
             Award points already rewarded
-          </span>
-          <button
+          </Badge>
+          <Button
+            type="button"
+            variant="destructiveOutline"
+            size="sm"
             onClick={handleUndo}
             disabled={isUndoing}
-            className="whitespace-nowrap rounded-md border border-red-200 px-2 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
           >
-            {isUndoing ? "Undoing..." : "Undo"}
-          </button>
+            {isUndoing ? "Undoing…" : "Undo"}
+          </Button>
         </div>
       ) : (
-        <button
-          onClick={handleAward}
-          disabled={isPending}
-          className="whitespace-nowrap rounded-md bg-black px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-        >
-          {isPending ? "Awarding..." : "Select & Award Points"}
-        </button>
+        <Button type="button" size="sm" onClick={handleAward} disabled={isPending}>
+          {isPending ? "Awarding…" : "Select & Award Points"}
+        </Button>
       )}
       {message && (
         <span
-          className={`max-w-[260px] text-right text-xs ${
-            isError ? "text-red-600" : "text-green-700"
+          className={`max-w-[220px] text-right text-xs ${
+            isError ? "text-destructive" : "text-emerald-700"
           }`}
         >
           {message}

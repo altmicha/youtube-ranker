@@ -2,17 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --border: 220 13% 91%;
-  --muted-foreground: 220 9% 46%;
+/*
+  Consistent light theme using shadcn/ui's standard CSS variable
+  convention (HSL triplets, no hsl() wrapper — Tailwind classes like
+  bg-background read these via hsl(var(--background))). Kept as one
+  theme throughout, per the "simple, consistent" design goal — no
+  dark-mode toggle to keep scope focused on the requested pages.
+*/
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 12%;
+
+    --primary: 240 6% 10%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 240 6% 10%;
+
+    --radius: 0.75rem;
+  }
 }
 
-.text-muted-foreground {
-  color: hsl(var(--muted-foreground));
-}
-.bg-border {
-  background-color: hsl(var(--border));
-}
-.border {
-  border-color: hsl(var(--border));
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
 }

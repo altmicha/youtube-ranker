@@ -76,6 +76,7 @@ create table public.videos (
   channel_name      text,
   submission_count  integer not null default 0, -- denormalized, kept in sync by trigger
   vote_count        integer not null default 0, -- denormalized, kept in sync by trigger
+  is_removed        boolean not null default false, -- soft-delete flag; see remove_video()
   created_at        timestamptz not null default now()
 );
 
@@ -387,6 +388,37 @@ begin
 end;
 $$;
 
+-- Soft-deletes a video: sets is_removed = true so it drops out of the
+-- homepage and creator dashboard lists (both filter on
+-- is_removed = false), without touching submissions, votes,
+-- point_awards, or video_creator_awards rows — so points already
+-- awarded stay awarded, and the one-award-per-creator-per-video rule
+-- (enforced by video_creator_awards' primary key) is unaffected. This
+-- is the only way a video's is_removed flag can be set: there's no
+-- public update policy on videos for clients, so this function —
+-- which independently re-checks the caller is a creator — is the
+-- actual enforcement, not just the UI hiding a button.
+create function public.remove_video(p_video_id uuid)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_caller_role public.user_role;
+begin
+  select role into v_caller_role from public.profiles where id = auth.uid();
+  if v_caller_role is distinct from 'creator' then
+    raise exception 'Only creators can remove videos';
+  end if;
+
+  update public.videos set is_removed = true where id = p_video_id;
+
+  if not found then
+    raise exception 'Video not found';
+  end if;
+end;
+$$;
+
 
 -- ---------------------------------------------------------
 -- 6. Helper: submit a video (creates the video row if new, then the
@@ -431,6 +463,7 @@ $$;
 -- 7. Helpful indexes
 -- ---------------------------------------------------------
 create index videos_submission_count_idx on public.videos (submission_count desc);
+create index videos_is_removed_idx on public.videos (is_removed);
 create index submissions_video_id_idx on public.submissions (video_id);
 create index submissions_user_id_idx on public.submissions (user_id);
 create index votes_video_id_idx on public.votes (video_id);

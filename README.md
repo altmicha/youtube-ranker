@@ -44,9 +44,17 @@ Then copy every file from this scaffold into that folder, overwriting
 
 ```bash
 npm install @supabase/supabase-js @supabase/ssr
-npx shadcn@latest init   # pick: TypeScript, Tailwind, CSS variables = yes
-npx shadcn@latest add button card avatar badge dialog input label separator
+npm install clsx tailwind-merge class-variance-authority
 ```
+
+The `components/ui/*` files (Button, Card, Input, Label, Badge,
+Separator) are already included in this scaffold, hand-written to
+match shadcn/ui's standard API — no `shadcn` CLI run is required to
+get the current pages working. If you later want more shadcn
+components (Dialog, Avatar, etc.), you can still run
+`npx shadcn@latest init` — say yes to overwriting `tailwind.config.ts`
+carefully, since this scaffold's config already defines the CSS
+variable color tokens shadcn expects.
 
 ## 3. Create a Supabase project
 

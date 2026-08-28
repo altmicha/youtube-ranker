@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { upvoteVideo, removeUpvote } from "@/app/actions/votes";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function UpvoteButton({
   videoId,
@@ -31,11 +33,8 @@ export function UpvoteButton({
     setError(null);
 
     if (upvoted) {
-      // Toggle off: optimistically flip back to "Upvote" and
-      // decrement the count, then remove the vote row.
       setUpvoted(false);
       setCount((c) => c - 1);
-
       startTransition(async () => {
         const result = await removeUpvote(videoId);
         if ("error" in result) {
@@ -45,10 +44,8 @@ export function UpvoteButton({
         }
       });
     } else {
-      // Toggle on: optimistically flip to "Upvoted" and increment.
       setUpvoted(true);
       setCount((c) => c + 1);
-
       startTransition(async () => {
         const result = await upvoteVideo(videoId);
         if ("error" in result) {
@@ -61,23 +58,26 @@ export function UpvoteButton({
   }
 
   return (
-    <div className="flex flex-col items-center">
-      <button
+    <div className="flex flex-col items-center gap-0.5">
+      <Button
+        type="button"
+        variant={upvoted ? "default" : "outline"}
+        size="sm"
         onClick={handleClick}
         disabled={isPending}
         title={!isLoggedIn ? "Sign in to upvote" : undefined}
-        className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
-          upvoted
-            ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
-            : "hover:bg-gray-50"
-        }`}
+        className={cn("flex-col gap-0 px-3 py-1.5 leading-tight", upvoted && "shadow")}
       >
-        {upvoted ? "Upvoted" : "Upvote"}
-      </button>
-      <span className="mt-1 text-xs text-muted-foreground">
-        {count} {count === 1 ? "vote" : "votes"}
-      </span>
-      {error && <span className="mt-1 text-xs text-red-600">{error}</span>}
+        <span aria-hidden className="text-base leading-none">
+          ▲
+        </span>
+        <span className="text-[11px] font-semibold">{count}</span>
+      </Button>
+      {error && (
+        <span className="max-w-[90px] text-center text-[10px] text-destructive">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

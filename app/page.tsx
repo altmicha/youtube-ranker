@@ -3,20 +3,22 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { SubmitVideoForm } from "@/components/submit-video-form";
 import { UpvoteButton } from "@/components/upvote-button";
+import { VideoCard } from "@/components/video-card";
+import { Card, CardContent } from "@/components/ui/card";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export default async function HomePage() {
   const [profile, supabase] = [await getCurrentProfile(), await createClient()];
 
-  // Feature 6/4: ranked by submission_count desc, vote_count shown per video.
+  // Ranked by submission_count desc. Removed videos never show up here.
   const { data: videos } = await supabase
     .from("videos")
     .select("*")
+    .eq("is_removed", false)
     .order("submission_count", { ascending: false })
     .limit(50);
 
-  // Figure out which of these videos the current user has already
-  // upvoted, so the button renders as "Upvoted" (disabled) on load
-  // instead of flashing "Upvote" first. One query, not N.
   let upvotedVideoIds = new Set<string>();
   if (profile && videos && videos.length > 0) {
     const { data: myVotes } = await supabase
@@ -31,81 +33,54 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
+    <div className="flex flex-col gap-8">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          Most-submitted videos
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Submit a YouTube link. Videos rise as more people submit them.
+        </p>
+      </div>
+
       {profile ? (
         <SubmitVideoForm />
       ) : (
-        <p className="mb-8 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-          <Link href="/login" className="font-medium text-blue-600">
-            Sign in
-          </Link>{" "}
-          to submit a video.
-        </p>
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Log in to submit a video and vote.
+            </p>
+            <Link href="/login" className={cn(buttonVariants())}>
+              Log in
+            </Link>
+          </CardContent>
+        </Card>
       )}
 
-      <h1 className="mb-4 text-xl font-semibold">Most-submitted videos</h1>
-
-      <ul className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         {videos?.map((video) => (
-          <li
+          <VideoCard
             key={video.id}
-            className="flex items-center gap-4 rounded-md border p-3"
-          >
-            <div className="flex w-16 flex-col items-center">
-              <span className="text-lg font-semibold">
-                {video.submission_count}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {video.submission_count === 1 ? "submission" : "submissions"}
-              </span>
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <a
-                href={`https://www.youtube.com/watch?v=${video.youtube_id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-3"
-              >
-                {video.thumbnail_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={video.thumbnail_url}
-                    alt=""
-                    className="h-14 w-24 flex-shrink-0 rounded object-cover"
-                  />
-                ) : (
-                  <div className="flex h-14 w-24 flex-shrink-0 items-center justify-center rounded bg-gray-100 text-xs text-muted-foreground">
-                    No thumbnail
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-blue-600 hover:underline">
-                    {video.title ?? `youtube.com/watch?v=${video.youtube_id}`}
-                  </p>
-                  {video.channel_name && (
-                    <p className="truncate text-sm text-muted-foreground">
-                      {video.channel_name}
-                    </p>
-                  )}
-                </div>
-              </a>
-            </div>
-
-            <UpvoteButton
-              videoId={video.id}
-              voteCount={video.vote_count}
-              initialUpvoted={upvotedVideoIds.has(video.id)}
-              isLoggedIn={!!profile}
-            />
-          </li>
+            video={video}
+            action={
+              <UpvoteButton
+                videoId={video.id}
+                voteCount={video.vote_count}
+                initialUpvoted={upvotedVideoIds.has(video.id)}
+                isLoggedIn={!!profile}
+              />
+            }
+          />
         ))}
         {(!videos || videos.length === 0) && (
-          <p className="text-sm text-muted-foreground">
-            No videos submitted yet — be the first!
-          </p>
+          <Card className="border-dashed">
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              No videos submitted yet — be the first!
+            </CardContent>
+          </Card>
         )}
-      </ul>
+      </div>
     </div>
   );
 }

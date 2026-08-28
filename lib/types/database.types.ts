@@ -31,6 +31,7 @@ export interface Video {
   channel_name: string | null;
   submission_count: number;
   vote_count: number;
+  is_removed: boolean;
   created_at: string;
 }
 
@@ -202,6 +203,10 @@ export interface Database {
       undo_award_for_video: {
         Args: { p_video_id: string };
         Returns: number;
+      };
+      remove_video: {
+        Args: { p_video_id: string };
+        Returns: undefined;
       };
     };
     Enums: {

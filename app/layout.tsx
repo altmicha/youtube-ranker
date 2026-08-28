@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Link from "next/link";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { signOut } from "@/app/auth/actions";
-import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
-  title: "YouTube Ranker",
+  title: "VideoRank",
   description: "Submit, rank, and get rewarded for great YouTube videos.",
 };
 
@@ -18,39 +22,75 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className="min-h-screen bg-white text-gray-900 antialiased">
-        <header className="flex items-center justify-between border-b px-6 py-3">
-          <Link href="/" className="font-semibold">
-            YouTube Ranker
-          </Link>
+      <body className="min-h-screen bg-background text-foreground antialiased">
+        <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
+            {/* Left side: logo, plus Log in / Sign up when signed out. */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-xs text-primary-foreground">
+                  ▶
+                </span>
+                <span className="hidden sm:inline">VideoRank</span>
+              </Link>
 
-          {profile ? (
-            <div className="flex items-center gap-4 text-sm">
-              {profile.role === "creator" && (
-                <Link href="/creator" className="font-medium text-blue-600">
-                  Creator dashboard
-                </Link>
+              {!profile && (
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/login"
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                  >
+                    Log in
+                  </Link>
+                  <Link href="/login" className={cn(buttonVariants({ size: "sm" }))}>
+                    Sign up
+                  </Link>
+                </div>
               )}
-              <span className="rounded-full bg-gray-100 px-3 py-1 font-medium">
-                {profile.points} pts
-              </span>
-              <span className="text-muted-foreground">
-                {profile.display_name ?? profile.email}
-              </span>
-              <form action={signOut}>
-                <button className="text-muted-foreground hover:underline">
-                  Sign out
-                </button>
-              </form>
             </div>
-          ) : (
-            <Link href="/login" className="text-sm font-medium">
-              Sign in
-            </Link>
+
+            {/* Right side: only shown once signed in. */}
+            {profile && (
+              <div className="flex items-center gap-2 sm:gap-3">
+                {profile.role === "creator" && (
+                  <Link
+                    href="/creator"
+                    className={cn(
+                      buttonVariants({ variant: "ghost", size: "sm" }),
+                      "hidden sm:inline-flex"
+                    )}
+                  >
+                    Creator dashboard
+                  </Link>
+                )}
+                <Badge variant="secondary" className="font-mono">
+                  {profile.points} pts
+                </Badge>
+                <span className="hidden max-w-[140px] truncate text-sm text-muted-foreground sm:inline">
+                  {profile.display_name ?? profile.email}
+                </span>
+                <form action={signOut}>
+                  <Button variant="outline" size="sm" type="submit">
+                    Sign out
+                  </Button>
+                </form>
+              </div>
+            )}
+          </div>
+
+          {profile?.role === "creator" && (
+            <div className="mx-auto max-w-3xl px-4 pb-2 sm:hidden">
+              <Link
+                href="/creator"
+                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+              >
+                Creator dashboard →
+              </Link>
+            </div>
           )}
         </header>
 
-        <main>{children}</main>
+        <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>
       </body>
     </html>
   );

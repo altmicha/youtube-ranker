@@ -2,6 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { submitVideo } from "@/app/actions/videos";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 
 export function SubmitVideoForm() {
   const [url, setUrl] = useState("");
@@ -26,27 +29,49 @@ export function SubmitVideoForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mb-8 flex flex-col gap-2">
-      <div className="flex gap-2">
-        <input
-          type="url"
-          required
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://www.youtube.com/watch?v=..."
-          className="flex-1 rounded-md border px-3 py-2 text-sm"
-          disabled={isPending}
-        />
-        <button
-          type="submit"
-          disabled={isPending}
-          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-        >
-          {isPending ? "Submitting..." : "Submit video"}
-        </button>
-      </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {success && <p className="text-sm text-green-700">{success}</p>}
-    </form>
+    <Card>
+      <CardContent className="py-5">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Input
+                type="url"
+                required
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="Paste a YouTube video URL…"
+                disabled={isPending}
+                className="h-11 pr-9 text-base"
+              />
+              {url && (
+                <button
+                  type="button"
+                  aria-label="Clear"
+                  onClick={() => setUrl("")}
+                  disabled={isPending}
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <Button type="submit" disabled={isPending} size="lg" className="h-11">
+              {isPending ? "Submitting…" : "Submit video"}
+            </Button>
+          </div>
+
+          {error && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          {success && (
+            <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {success}
+            </p>
+          )}
+        </form>
+      </CardContent>
+    </Card>
   );
 }

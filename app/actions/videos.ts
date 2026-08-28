@@ -58,3 +58,37 @@ export async function submitVideo(url: string): Promise<SubmitVideoResult> {
   revalidatePath("/creator");
   return { success: true };
 }
+
+export type RemoveVideoResult = { error: string } | { success: true };
+
+export async function removeVideo(videoId: string): Promise<RemoveVideoResult> {
+  // Creator-only. Checked here as a fast, friendly failure path —
+  // remove_video() in schema.sql independently re-checks the caller's
+  // role too, so a client can't bypass this by calling the action
+  // some other way. There is no public update policy on videos, so
+  // this function is the only path that can set is_removed.
+  const profile = await getCurrentProfile();
+  if (!profile) {
+    return { error: "You need to sign in." };
+  }
+  if (profile.role !== "creator") {
+    return { error: "Only creators can remove videos." };
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("remove_video", {
+    p_video_id: videoId,
+  });
+
+  if (error) {
+    return { error: `Remove failed: ${error.message}` };
+  }
+
+  // Removed videos are filtered out of both the homepage and creator
+  // dashboard queries (is_removed = false), so revalidating both
+  // paths makes them disappear immediately.
+  revalidatePath("/");
+  revalidatePath("/creator");
+  return { success: true };
+}
