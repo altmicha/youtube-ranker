@@ -1,7 +1,15 @@
 // Hand-written types matching supabase/schema.sql.
-// Once your project is running, you can replace this file with a
-// generated one for perfect accuracy:
-//   npx supabase gen types typescript --project-id <ref> > lib/types/database.types.ts
+//
+// IMPORTANT: this file's shape must satisfy @supabase/supabase-js's
+// internal `GenericSchema` constraint — every schema needs `Tables`,
+// `Views`, `Functions`, `Enums`, and `CompositeTypes` keys (even when
+// empty), and every table needs a `Relationships` array. If any of
+// those are missing, TypeScript can't prove `Database["public"]`
+// satisfies the constraint the client generic requires, and it
+// silently falls back to typing every query result as `never` —
+// which is what caused the Vercel build failures. This structure
+// mirrors what `npx supabase gen types typescript` produces, so it's
+// safe to replace this file with a generated one later.
 
 export type UserRole = "user" | "creator";
 
@@ -63,32 +71,115 @@ export interface Database {
         Row: Profile;
         Insert: Partial<Profile> & { id: string; email: string };
         Update: Partial<Profile>;
+        Relationships: [];
       };
       videos: {
         Row: Video;
         Insert: Partial<Video> & { youtube_id: string };
         Update: Partial<Video>;
+        Relationships: [];
       };
       submissions: {
         Row: Submission;
         Insert: Partial<Submission> & { video_id: string; user_id: string };
         Update: Partial<Submission>;
+        Relationships: [
+          {
+            foreignKeyName: "submissions_video_id_fkey";
+            columns: ["video_id"];
+            isOneToOne: false;
+            referencedRelation: "videos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "submissions_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       votes: {
         Row: Vote;
         Insert: Partial<Vote> & { video_id: string; user_id: string };
         Update: Partial<Vote>;
+        Relationships: [
+          {
+            foreignKeyName: "votes_video_id_fkey";
+            columns: ["video_id"];
+            isOneToOne: false;
+            referencedRelation: "videos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "votes_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       point_awards: {
         Row: PointAward;
         Insert: Partial<PointAward>;
         Update: Partial<PointAward>;
+        Relationships: [
+          {
+            foreignKeyName: "point_awards_video_id_fkey";
+            columns: ["video_id"];
+            isOneToOne: false;
+            referencedRelation: "videos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "point_awards_submission_id_fkey";
+            columns: ["submission_id"];
+            isOneToOne: false;
+            referencedRelation: "submissions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "point_awards_recipient_id_fkey";
+            columns: ["recipient_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "point_awards_creator_id_fkey";
+            columns: ["creator_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       video_creator_awards: {
         Row: VideoCreatorAward;
         Insert: Partial<VideoCreatorAward>;
         Update: Partial<VideoCreatorAward>;
+        Relationships: [
+          {
+            foreignKeyName: "video_creator_awards_video_id_fkey";
+            columns: ["video_id"];
+            isOneToOne: false;
+            referencedRelation: "videos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "video_creator_awards_creator_id_fkey";
+            columns: ["creator_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
       };
+    };
+    Views: {
+      [_ in never]: never;
     };
     Functions: {
       submit_video: {
@@ -112,6 +203,12 @@ export interface Database {
         Args: { p_video_id: string };
         Returns: number;
       };
+    };
+    Enums: {
+      user_role: UserRole;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
     };
   };
 }
