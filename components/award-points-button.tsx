@@ -90,7 +90,7 @@ export function AwardPointsButton({
       {message && (
         <span
           className={`max-w-[220px] text-right text-xs ${
-            isError ? "text-destructive" : "text-emerald-700"
+            isError ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"
           }`}
         >
           {message}

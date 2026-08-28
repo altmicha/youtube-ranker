@@ -66,7 +66,7 @@ export function SubmitVideoForm() {
             </p>
           )}
           {success && (
-            <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
               {success}
             </p>
           )}

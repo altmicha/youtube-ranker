@@ -41,6 +41,45 @@
 
     --radius: 0.75rem;
   }
+
+  /*
+    Dark theme. Because every page/component in this app is already
+    built from the CSS-variable tokens above (bg-background,
+    text-foreground, bg-card, border, bg-muted, bg-primary, etc. —
+    see tailwind.config.ts), overriding these variables under .dark
+    re-themes the homepage, login/signup, creator dashboard, header,
+    cards, buttons, and form inputs everywhere at once. No per-page
+    dark: classes needed except for a few hardcoded colors below.
+  */
+  .dark {
+    --background: 240 10% 6%;
+    --foreground: 0 0% 95%;
+
+    --card: 240 8% 9%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 240 8% 9%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 0 0% 95%;
+    --primary-foreground: 240 6% 10%;
+
+    --secondary: 240 5% 16%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 240 5% 16%;
+    --muted-foreground: 240 5% 65%;
+
+    --accent: 240 5% 16%;
+    --accent-foreground: 0 0% 95%;
+
+    --destructive: 0 63% 42%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 5% 20%;
+    --input: 240 5% 20%;
+    --ring: 240 5% 65%;
+  }
 }
 
 @layer base {
@@ -50,5 +89,11 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
   }
 }
