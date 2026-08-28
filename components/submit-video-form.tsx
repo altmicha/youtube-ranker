@@ -5,9 +5,15 @@ import { submitVideo } from "@/app/actions/videos";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { VIDEO_CATEGORIES, type VideoCategory } from "@/lib/types/database.types";
+import { cn } from "@/lib/utils";
 
 export function SubmitVideoForm() {
   const [url, setUrl] = useState("");
+  // Requirement 5: category is required — no default selected, so
+  // submitting with the placeholder still in place is blocked by
+  // `required` on the <select> plus the empty-string check below.
+  const [category, setCategory] = useState<VideoCategory | "">("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -17,13 +23,19 @@ export function SubmitVideoForm() {
     setError(null);
     setSuccess(null);
 
+    if (!category) {
+      setError("Choose a category first.");
+      return;
+    }
+
     startTransition(async () => {
-      const result = await submitVideo(url);
+      const result = await submitVideo(url, category);
       if ("error" in result) {
         setError(result.error);
       } else {
         setSuccess("Video submitted!");
         setUrl("");
+        setCategory("");
       }
     });
   }
@@ -55,6 +67,28 @@ export function SubmitVideoForm() {
                 </button>
               )}
             </div>
+
+            <select
+              required
+              value={category}
+              onChange={(e) => setCategory(e.target.value as VideoCategory)}
+              disabled={isPending}
+              aria-label="Category"
+              className={cn(
+                "h-11 rounded-md border border-input bg-background px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                !category && "text-muted-foreground"
+              )}
+            >
+              <option value="" disabled>
+                Category…
+              </option>
+              {VIDEO_CATEGORIES.map((c) => (
+                <option key={c} value={c} className="text-foreground">
+                  {c}
+                </option>
+              ))}
+            </select>
+
             <Button type="submit" disabled={isPending} size="lg" className="h-11">
               {isPending ? "Submitting…" : "Submit video"}
             </Button>

@@ -48,6 +48,7 @@ export function VideoCard({
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline">{video.category}</Badge>
             <Badge variant="muted" className="font-mono">
               {video.submission_count}{" "}
               {video.submission_count === 1 ? "submission" : "submissions"}

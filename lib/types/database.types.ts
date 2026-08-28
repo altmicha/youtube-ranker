@@ -13,6 +13,23 @@
 
 export type UserRole = "user" | "creator";
 
+export const VIDEO_CATEGORIES = [
+  "Gaming",
+  "Funny",
+  "LSF",
+  "Cop Slop",
+  "React",
+  "IRL",
+  "Slots",
+  "Sports",
+  "Horror",
+  "Variety",
+  "Music",
+  "Just Chatting",
+] as const;
+
+export type VideoCategory = (typeof VIDEO_CATEGORIES)[number];
+
 export interface Profile {
   id: string;
   email: string;
@@ -29,6 +46,7 @@ export interface Video {
   title: string | null;
   thumbnail_url: string | null;
   channel_name: string | null;
+  category: VideoCategory;
   submission_count: number;
   vote_count: number;
   is_removed: boolean;
@@ -189,6 +207,7 @@ export interface Database {
           p_title: string | null;
           p_thumbnail_url: string | null;
           p_channel_name: string | null;
+          p_category: VideoCategory;
         };
         Returns: Submission;
       };
@@ -211,6 +230,7 @@ export interface Database {
     };
     Enums: {
       user_role: UserRole;
+      video_category: VideoCategory;
     };
     CompositeTypes: {
       [_ in never]: never;

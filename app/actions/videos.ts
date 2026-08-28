@@ -4,16 +4,28 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
+import { VIDEO_CATEGORIES, type VideoCategory } from "@/lib/types/database.types";
 
 export type SubmitVideoResult = { error: string } | { success: true };
 
-export async function submitVideo(url: string): Promise<SubmitVideoResult> {
+export async function submitVideo(
+  url: string,
+  category: VideoCategory
+): Promise<SubmitVideoResult> {
   // Feature: only logged-in users can submit. getCurrentProfile()
   // reads the session server-side, so this can't be bypassed from the
   // client no matter what the form sends.
   const profile = await getCurrentProfile();
   if (!profile) {
     return { error: "You need to sign in to submit a video." };
+  }
+
+  // Requirement 5: category is required. Re-validated here against
+  // the canonical list rather than trusting the client — a request
+  // built by hand (not through the <select>) with a bogus value would
+  // otherwise hit the DB's enum type and produce a confusing error.
+  if (!VIDEO_CATEGORIES.includes(category)) {
+    return { error: "Choose a valid category." };
   }
 
   const trimmed = url.trim();
@@ -38,12 +50,15 @@ export async function submitVideo(url: string): Promise<SubmitVideoResult> {
   // submit_video() atomically creates-or-updates the video row and
   // inserts a submissions row for the current user. The DB's
   // unique(video_id, user_id) constraint stops the same user from
-  // submitting the same video twice.
+  // submitting the same video twice. If the video already exists,
+  // the category passed here is ignored — the first submitter's
+  // category choice sticks (see schema.sql).
   const { error } = await supabase.rpc("submit_video", {
     p_youtube_id: videoId,
     p_title: metadata?.title ?? null,
     p_thumbnail_url: metadata?.thumbnailUrl ?? null,
     p_channel_name: metadata?.channelName ?? null,
+    p_category: category,
   });
 
   if (error) {

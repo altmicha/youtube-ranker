@@ -68,12 +68,18 @@ create trigger on_auth_user_created
 -- ---------------------------------------------------------
 -- 2. VIDEOS  (one row per unique YouTube video)
 -- ---------------------------------------------------------
+create type public.video_category as enum (
+  'Gaming', 'Funny', 'LSF', 'Cop Slop', 'React', 'IRL', 'Slots',
+  'Sports', 'Horror', 'Variety', 'Music', 'Just Chatting'
+);
+
 create table public.videos (
   id                uuid primary key default gen_random_uuid(),
   youtube_id        text not null unique,      -- e.g. "dQw4w9WgXcQ"
   title             text,
   thumbnail_url     text,
   channel_name      text,
+  category          public.video_category not null default 'Variety',
   submission_count  integer not null default 0, -- denormalized, kept in sync by trigger
   vote_count        integer not null default 0, -- denormalized, kept in sync by trigger
   is_removed        boolean not null default false, -- soft-delete flag; see remove_video()
@@ -428,7 +434,8 @@ create function public.submit_video(
   p_youtube_id text,
   p_title text,
   p_thumbnail_url text,
-  p_channel_name text
+  p_channel_name text,
+  p_category public.video_category
 )
 returns public.submissions
 language plpgsql
@@ -442,8 +449,10 @@ begin
   -- backfill any metadata columns that are still null rather than
   -- only ever touching title — lets an older row saved before the
   -- YouTube API integration existed get filled in by a later fetch.
-  insert into public.videos (youtube_id, title, thumbnail_url, channel_name)
-  values (p_youtube_id, p_title, p_thumbnail_url, p_channel_name)
+  -- category is intentionally NOT overwritten on conflict: it's a
+  -- per-video attribute, and the first submitter's choice sticks.
+  insert into public.videos (youtube_id, title, thumbnail_url, channel_name, category)
+  values (p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category)
   on conflict (youtube_id) do update
     set title = coalesce(public.videos.title, excluded.title),
         thumbnail_url = coalesce(public.videos.thumbnail_url, excluded.thumbnail_url),
@@ -464,6 +473,7 @@ $$;
 -- ---------------------------------------------------------
 create index videos_submission_count_idx on public.videos (submission_count desc);
 create index videos_is_removed_idx on public.videos (is_removed);
+create index videos_category_idx on public.videos (category);
 create index submissions_video_id_idx on public.submissions (video_id);
 create index submissions_user_id_idx on public.submissions (user_id);
 create index votes_video_id_idx on public.votes (video_id);

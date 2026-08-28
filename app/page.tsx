@@ -4,20 +4,25 @@ import { getCurrentProfile } from "@/lib/auth/roles";
 import { SubmitVideoForm } from "@/components/submit-video-form";
 import { UpvoteButton } from "@/components/upvote-button";
 import { VideoCard } from "@/components/video-card";
+import { CategoryGrid } from "@/components/category-grid";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+const TRENDING_PREVIEW_LIMIT = 5;
+
 export default async function HomePage() {
   const [profile, supabase] = [await getCurrentProfile(), await createClient()];
 
-  // Ranked by submission_count desc. Removed videos never show up here.
+  // Small preview only — the full ranked list lives on /videos and
+  // each /category/<slug> page, so the homepage stays focused on
+  // browsing by category instead of forcing a scroll past a long list.
   const { data: videos } = await supabase
     .from("videos")
     .select("*")
     .eq("is_removed", false)
     .order("submission_count", { ascending: false })
-    .limit(50);
+    .limit(TRENDING_PREVIEW_LIMIT);
 
   let upvotedVideoIds = new Set<string>();
   if (profile && videos && videos.length > 0) {
@@ -33,15 +38,17 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       <div>
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          Most-submitted videos
+          Browse categories
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Submit a YouTube link. Videos rise as more people submit them.
+          Pick a category to see its ranked videos, or submit a link below.
         </p>
       </div>
+
+      <CategoryGrid />
 
       {profile ? (
         <SubmitVideoForm />
@@ -59,6 +66,18 @@ export default async function HomePage() {
       )}
 
       <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Trending now
+          </h2>
+          <Link
+            href="/videos"
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
+            View all videos →
+          </Link>
+        </div>
+
         {videos?.map((video) => (
           <VideoCard
             key={video.id}
