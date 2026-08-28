@@ -29,6 +29,43 @@ interface CategoryTile {
   count?: number;
 }
 
+// Poster for one card: tries /public/categories/<slug>.jpg first, and
+// silently falls back to the existing gradient (still rendered
+// underneath, always) if that file 404s or hasn't been added yet.
+// Each instance owns its own imgError state since map items each get
+// their own component instance/hooks.
+function CategoryPoster({
+  slug,
+  name,
+  gradient,
+}: {
+  slug: string;
+  name: string;
+  gradient: string;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div className={`relative h-48 w-36 overflow-hidden rounded-md ${gradient}`}>
+      {!imgError && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/categories/${slug}.jpg`}
+          alt=""
+          onError={() => setImgError(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+      {/* Small label on top of the image, not a large centered
+          heading — requirement 6. Semi-transparent backing so it
+          stays readable over any cover image. */}
+      <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+        {name}
+      </span>
+    </div>
+  );
+}
+
 export function CategoryGrid({
   counts,
 }: {
@@ -74,16 +111,13 @@ export function CategoryGrid({
               href={href}
               className="block w-36 no-underline"
             >
-              <div
-                className={`flex h-48 w-36 items-end rounded-md p-2 ${category.gradient}`}
-              >
-                <span className="text-sm font-semibold text-white">
-                  {category.name}
-                </span>
-              </div>
-              <div className="mt-1 truncate text-sm text-white">{category.name}</div>
+              <CategoryPoster
+                slug={category.slug}
+                name={category.name}
+                gradient={category.gradient}
+              />
               {!!category.count && (
-                <div className="text-xs text-zinc-400">
+                <div className="mt-1 text-xs text-zinc-400">
                   {category.count} {category.count === 1 ? "video" : "videos"}
                 </div>
               )}
