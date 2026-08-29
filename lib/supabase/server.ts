@@ -21,10 +21,17 @@ export async function createClient() {
               cookieStore.set(name, value, options)
             );
           } catch {
-            // setAll is called from a Server Component in some cases
-            // (e.g. during a prefetch); this can be safely ignored
-            // because middleware.ts refreshes the session on every
-            // request anyway.
+            // Next.js only allows cookie writes from Server Actions
+            // and Route Handlers, not plain Server Component renders
+            // — this fires (and is safely ignored) whenever setAll is
+            // called mid-render. There's no middleware to fall back
+            // on for a global session refresh (deliberately — see
+            // conversation); instead, getCurrentProfile() in
+            // lib/auth/roles.ts is the single place that checks auth
+            // and handles a stale/invalid session, and its
+            // best-effort signOut() actually clears cookies whenever
+            // it runs from a context that supports it (Server
+            // Actions, Route Handlers).
           }
         },
       },
