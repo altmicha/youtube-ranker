@@ -4,6 +4,7 @@ import { AwardPointsButton } from "@/components/award-points-button";
 import { RemoveVideoButton } from "@/components/remove-video-button";
 import { VideoCard } from "@/components/video-card";
 import { Card, CardContent } from "@/components/ui/card";
+import { VideoPlayerProvider } from "@/lib/video-player-context";
 
 export default async function CreatorDashboardPage() {
   // Access gate: redirects to /login if signed out, or / if not a creator.
@@ -42,21 +43,23 @@ export default async function CreatorDashboardPage() {
       </div>
 
       <div className="flex flex-col gap-3">
-        {videos?.map((video) => (
-          <VideoCard
-            key={video.id}
-            video={video}
-            action={
-              <div className="flex flex-col items-end gap-2">
-                <AwardPointsButton
-                  videoId={video.id}
-                  initialAlreadyAwarded={alreadyAwardedVideoIds.has(video.id)}
-                />
-                <RemoveVideoButton videoId={video.id} />
-              </div>
-            }
-          />
-        ))}
+        <VideoPlayerProvider>
+          {videos?.map((video) => (
+            <VideoCard
+              key={video.id}
+              video={video}
+              action={
+                <div className="flex flex-col items-end gap-2">
+                  <AwardPointsButton
+                    videoId={video.id}
+                    initialAlreadyAwarded={alreadyAwardedVideoIds.has(video.id)}
+                  />
+                  <RemoveVideoButton videoId={video.id} />
+                </div>
+              }
+            />
+          ))}
+        </VideoPlayerProvider>
         {(!videos || videos.length === 0) && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">

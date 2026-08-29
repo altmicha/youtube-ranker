@@ -8,6 +8,7 @@ import { TimeRangeFilter } from "@/components/time-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { categoryFromSlug } from "@/lib/categories";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
+import { VideoPlayerProvider } from "@/lib/video-player-context";
 import type { Video } from "@/lib/types/database.types";
 
 export default async function CategoryPage({
@@ -94,20 +95,22 @@ export default async function CategoryPage({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {videos?.map((video) => (
-          <VideoCard
-            key={video.id}
-            video={video}
-            action={
-              <UpvoteButton
-                videoId={video.id}
-                voteCount={video.vote_count}
-                initialUpvoted={upvotedVideoIds.has(video.id)}
-                isLoggedIn={!!profile}
-              />
-            }
-          />
-        ))}
+        <VideoPlayerProvider>
+          {videos?.map((video) => (
+            <VideoCard
+              key={video.id}
+              video={video}
+              action={
+                <UpvoteButton
+                  videoId={video.id}
+                  voteCount={video.vote_count}
+                  initialUpvoted={upvotedVideoIds.has(video.id)}
+                  isLoggedIn={!!profile}
+                />
+              }
+            />
+          ))}
+        </VideoPlayerProvider>
         {(!videos || videos.length === 0) && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">

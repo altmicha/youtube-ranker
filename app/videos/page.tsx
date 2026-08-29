@@ -4,6 +4,7 @@ import { getCurrentProfile } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { Card, CardContent } from "@/components/ui/card";
+import { VideoPlayerProvider } from "@/lib/video-player-context";
 
 export default async function AllVideosPage() {
   const [profile, supabase] = [await getCurrentProfile(), await createClient()];
@@ -43,20 +44,22 @@ export default async function AllVideosPage() {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {videos?.map((video) => (
-          <VideoCard
-            key={video.id}
-            video={video}
-            action={
-              <UpvoteButton
-                videoId={video.id}
-                voteCount={video.vote_count}
-                initialUpvoted={upvotedVideoIds.has(video.id)}
-                isLoggedIn={!!profile}
-              />
-            }
-          />
-        ))}
+        <VideoPlayerProvider>
+          {videos?.map((video) => (
+            <VideoCard
+              key={video.id}
+              video={video}
+              action={
+                <UpvoteButton
+                  videoId={video.id}
+                  voteCount={video.vote_count}
+                  initialUpvoted={upvotedVideoIds.has(video.id)}
+                  isLoggedIn={!!profile}
+                />
+              }
+            />
+          ))}
+        </VideoPlayerProvider>
         {(!videos || videos.length === 0) && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
