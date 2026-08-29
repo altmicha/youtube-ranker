@@ -53,6 +53,14 @@ export function PlatformGrid() {
         <Link
           key={platform.slug}
           href={platform.href}
+          // /youtube and /twitch are dynamic routes (they query the
+          // DB), so Next's default prefetch-on-visible behavior was
+          // eagerly fetching their full payload from the homepage
+          // before the user ever clicked — that's the "fetches
+          // /youtube twice, /twitch twice" from the network tab.
+          // prefetch={false} means they're only ever fetched once,
+          // on an actual click/navigation.
+          prefetch={false}
           className="block w-36 no-underline"
         >
           <PlatformPoster slug={platform.slug} gradient={platform.gradient} />

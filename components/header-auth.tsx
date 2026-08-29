@@ -37,6 +37,11 @@ export async function HeaderLoggedInInfo() {
       {profile.role === "creator" && (
         <Link
           href="/creator"
+          // Requirement: don't fetch /creator from the homepage (or
+          // any other page) before it's actually clicked — /creator
+          // is a dynamic, DB-querying route, so default prefetch was
+          // eagerly loading it in the background on every page load.
+          prefetch={false}
           className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden sm:inline-flex")}
         >
           Creator dashboard
@@ -65,6 +70,7 @@ export async function MobileCreatorLink() {
     <div className="mx-auto max-w-6xl px-4 pb-2 sm:hidden">
       <Link
         href="/creator"
+        prefetch={false}
         className="text-sm font-medium text-primary underline-offset-4 hover:underline"
       >
         Creator dashboard →
