@@ -84,22 +84,32 @@ create type public.video_category as enum (
 -- category into 'Variety' so it keeps showing on /videos (unfiltered)
 -- without a category tile/route of its own.
 
+create type public.video_source as enum ('youtube', 'twitch');
+
 create table public.videos (
   id                uuid primary key default gen_random_uuid(),
-  youtube_id        text not null unique,      -- e.g. "dQw4w9WgXcQ"
+  source            public.video_source not null default 'youtube',
+  youtube_id        text unique,      -- e.g. "dQw4w9WgXcQ"; null for Twitch rows
+  twitch_clip_slug  text unique,      -- e.g. "AwkwardHelplessSalamanderSwiftRage"; null for YouTube rows
   title             text,
   thumbnail_url     text,
-  channel_name      text,
+  channel_name      text,      -- YouTube channel name; null for Twitch rows
+  broadcaster_name  text,      -- Twitch broadcaster name; null for YouTube rows
   category          public.video_category not null default 'Variety',
-  view_count        bigint,    -- from YouTube Data API; null if never fetched successfully
-  like_count        bigint,    -- same
+  view_count        bigint,    -- from YouTube Data API or Twitch Helix; null if never fetched successfully
+  like_count        bigint,    -- YouTube only — Twitch's Get Clips response has no like count
   dislike_count     bigint,    -- almost always null — YouTube hid this publicly in Dec 2021;
                                 -- only ever set from a real API value, never faked
-  published_at      timestamptz, -- YouTube's snippet.publishedAt; null until fetched (or if the fetch failed)
+  published_at      timestamptz, -- YouTube's snippet.publishedAt, or Twitch's clip created_at
   submission_count  integer not null default 0, -- denormalized, kept in sync by trigger
   vote_count        integer not null default 0, -- denormalized, kept in sync by trigger
   is_removed        boolean not null default false, -- soft-delete flag; see remove_video()
-  created_at        timestamptz not null default now()
+  created_at        timestamptz not null default now(),
+  constraint videos_source_id_check check (
+    (source = 'youtube' and youtube_id is not null and twitch_clip_slug is null)
+    or
+    (source = 'twitch' and twitch_clip_slug is not null and youtube_id is null)
+  )
 );
 
 alter table public.videos enable row level security;
@@ -562,6 +572,83 @@ $$;
 
 
 -- ---------------------------------------------------------
+-- 6a2. Twitch clip submission — deliberately a separate function
+-- from submit_video() rather than merging the two, so adding Twitch
+-- support cannot change YouTube's existing, working behavior at all.
+-- Mirrors submit_video()'s revive-if-removed / backfill-if-active /
+-- insert-if-new branching exactly, just keyed by twitch_clip_slug
+-- instead of youtube_id, and without like_count/dislike_count (Get
+-- Clips has no such fields).
+-- ---------------------------------------------------------
+create function public.submit_twitch_clip(
+  p_slug text,
+  p_title text,
+  p_thumbnail_url text,
+  p_broadcaster_name text,
+  p_category public.video_category,
+  p_view_count bigint default null,
+  p_published_at timestamptz default null
+)
+returns public.submissions
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_video_id uuid;
+  v_was_removed boolean;
+  v_submission public.submissions;
+begin
+  select id, is_removed into v_video_id, v_was_removed
+    from public.videos where twitch_clip_slug = p_slug;
+
+  if v_video_id is not null and v_was_removed then
+    delete from public.submissions where video_id = v_video_id;
+    delete from public.votes where video_id = v_video_id;
+    delete from public.video_creator_awards where video_id = v_video_id;
+
+    update public.videos
+      set is_removed = false,
+          title = p_title,
+          thumbnail_url = p_thumbnail_url,
+          broadcaster_name = p_broadcaster_name,
+          category = p_category,
+          view_count = p_view_count,
+          published_at = p_published_at
+      where id = v_video_id;
+
+  elsif v_video_id is null then
+    insert into public.videos (
+      source, twitch_clip_slug, title, thumbnail_url, broadcaster_name,
+      category, view_count, published_at
+    )
+    values (
+      'twitch', p_slug, p_title, p_thumbnail_url, p_broadcaster_name,
+      p_category, p_view_count, p_published_at
+    )
+    returning id into v_video_id;
+
+  else
+    -- Existing, still-active clip: backfill-only, same pattern as
+    -- submit_video()'s equivalent branch.
+    update public.videos
+      set title = coalesce(title, p_title),
+          thumbnail_url = coalesce(thumbnail_url, p_thumbnail_url),
+          broadcaster_name = coalesce(broadcaster_name, p_broadcaster_name),
+          view_count = coalesce(p_view_count, view_count),
+          published_at = coalesce(published_at, p_published_at)
+      where id = v_video_id;
+  end if;
+
+  insert into public.submissions (video_id, user_id)
+  values (v_video_id, auth.uid())
+  returning * into v_submission;
+
+  return v_submission;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
 -- 6b. Time-windowed category ranking.
 --
 -- Ranks videos in a category by how many submissions they got within
@@ -575,21 +662,25 @@ $$;
 -- vote_count returned is still the video's all-time vote count
 -- (upvotes aren't windowed — see conversation requirement 6).
 -- ---------------------------------------------------------
--- Adding published_at to the returned columns changes this
--- function's return type, which create-or-replace can't do — drop
--- the prior version first.
+-- Adding p_source (and the source/twitch_clip_slug/broadcaster_name
+-- return columns) changes this function's signature and return type,
+-- which create-or-replace can't do — drop the prior version first.
 drop function if exists public.videos_ranked_by_category(public.video_category, timestamptz);
 
 create function public.videos_ranked_by_category(
   p_category public.video_category,
+  p_source public.video_source,
   p_since timestamptz default null
 )
 returns table (
   id uuid,
+  source public.video_source,
   youtube_id text,
+  twitch_clip_slug text,
   title text,
   thumbnail_url text,
   channel_name text,
+  broadcaster_name text,
   category public.video_category,
   view_count bigint,
   like_count bigint,
@@ -605,7 +696,8 @@ language sql
 stable
 as $$
   select
-    v.id, v.youtube_id, v.title, v.thumbnail_url, v.channel_name, v.category,
+    v.id, v.source, v.youtube_id, v.twitch_clip_slug,
+    v.title, v.thumbnail_url, v.channel_name, v.broadcaster_name, v.category,
     v.view_count, v.like_count, v.dislike_count, v.published_at,
     v.submission_count, v.vote_count, v.is_removed, v.created_at,
     count(s.id) filter (
@@ -614,6 +706,7 @@ as $$
   from public.videos v
   left join public.submissions s on s.video_id = v.id
   where v.category = p_category
+    and v.source = p_source
     and v.is_removed = false
   group by v.id
   having p_since is null
@@ -629,6 +722,7 @@ $$;
 create index videos_submission_count_idx on public.videos (submission_count desc);
 create index videos_is_removed_idx on public.videos (is_removed);
 create index videos_category_idx on public.videos (category);
+create index videos_twitch_clip_slug_idx on public.videos (twitch_clip_slug);
 create index submissions_video_id_idx on public.submissions (video_id);
 create index submissions_user_id_idx on public.submissions (user_id);
 create index submissions_created_at_idx on public.submissions (created_at);

@@ -7,11 +7,12 @@ import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { categoryFromSlug } from "@/lib/categories";
+import { TWITCH_SELECTABLE_CATEGORIES } from "@/lib/types/database.types";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 import type { Video } from "@/lib/types/database.types";
 
-export default async function CategoryPage({
+export default async function TwitchCategoryPage({
   params,
   searchParams,
 }: {
@@ -19,33 +20,26 @@ export default async function CategoryPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { slug } = await params;
-  const category = categoryFromSlug(slug);
-
-  // Unknown slug (typo, stale link, made-up value) — 404 rather than
-  // silently showing an empty or wrong list.
+  // Resolved against TWITCH_SELECTABLE_CATEGORIES specifically (just
+  // LSF and Funny) — e.g. /twitch/gaming 404s even though "Gaming" is
+  // a real category, since it's not one Twitch offers.
+  const category = categoryFromSlug(slug, TWITCH_SELECTABLE_CATEGORIES);
   if (!category) notFound();
 
-  // Requirement 7/9: defaults to weekly; an unrecognized ?range=
-  // value (typo, stale link) also falls back to weekly rather than
-  // erroring.
   const range = parseTimeRange((await searchParams).range);
   const since = timeRangeSince(range);
 
   const [profile, supabase] = [await getCurrentProfile(), await createClient()];
 
-  // Requirement 5: ranked by submissions within the selected window,
-  // not all-time submission_count — see videos_ranked_by_category()
-  // in schema.sql. Works identically for logged-out visitors
-  // (requirement 8) since it's just a read.
+  // p_source: "twitch" is the fix for the reported bug — without it,
+  // this page would also show YouTube's LSF videos mixed in. See
+  // schema.sql.
   const { data: rankedRows } = await supabase.rpc("videos_ranked_by_category", {
     p_category: category,
+    p_source: "twitch",
     p_since: since,
   });
 
-  // Requirement 6: the card's submission-count badge should reflect
-  // *why* a video is ranked where it is, so it shows the windowed
-  // count while "range" is anything but all-time. vote_count is left
-  // exactly as returned (all-time) — upvotes are never windowed.
   const videos: Video[] | undefined = rankedRows?.map((row) => ({
     id: row.id,
     source: row.source,
@@ -83,17 +77,17 @@ export default async function CategoryPage({
     <div className="flex flex-col gap-4">
       <div>
         <Link
-          href="/"
+          href="/twitch"
           className="text-sm text-muted-foreground hover:text-foreground hover:underline"
         >
-          ← Back to categories
+          ← Back to Twitch categories
         </Link>
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category}
           </h1>
-          <TimeRangeFilter categorySlug={slug} active={range} />
+          <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} />
         </div>
       </div>
 
@@ -117,7 +111,7 @@ export default async function CategoryPage({
         {(!videos || videos.length === 0) && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No videos submitted in {category}{" "}
+              No clips submitted in {category}{" "}
               {range === "all" ? "yet." : `in the ${TIME_RANGE_WINDOW_TEXT[range]}.`}
             </CardContent>
           </Card>

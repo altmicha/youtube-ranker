@@ -7,6 +7,7 @@ import { formatCount } from "@/lib/format";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { useVideoPlayer } from "@/lib/video-player-context";
 import { VideoEmbed } from "@/components/video-embed";
+import { TwitchEmbed } from "@/components/twitch-embed";
 
 export function VideoCard({
   video,
@@ -17,14 +18,24 @@ export function VideoCard({
 }) {
   const { playingId, toggle } = useVideoPlayer();
   const isPlaying = playingId === video.id;
+  const isTwitch = video.source === "twitch";
 
-  // Requirement 4 (view/like/dislike): only include a stat if the API
-  // actually returned it — dislikeCount is almost always null
-  // (YouTube hid it publicly in Dec 2021), and view/like can be null
-  // if the stats fetch failed at submission time. Never show a
-  // fabricated 0. Upload age is appended to the same line and is
-  // likewise only shown once actually fetched — old videos stay
-  // blank until resubmitted.
+  // Channel-equivalent label and a fallback title, source-aware:
+  // YouTube videos have channel_name/youtube_id, Twitch clips have
+  // broadcaster_name/twitch_clip_slug — never both.
+  const attributionName = isTwitch ? video.broadcaster_name : video.channel_name;
+  const fallbackTitle = isTwitch
+    ? `twitch.tv clip: ${video.twitch_clip_slug}`
+    : `youtube.com/watch?v=${video.youtube_id}`;
+
+  // Requirement 4 (view/like/dislike, YouTube feature): only include
+  // a stat if the API actually returned it — dislikeCount is almost
+  // always null (YouTube hid it publicly in Dec 2021), view/like can
+  // be null if the stats fetch failed, and Twitch clips never have
+  // like/dislike counts at all (Get Clips doesn't return them). Never
+  // show a fabricated 0. Upload/creation age is appended to the same
+  // line for both sources and is likewise only shown once actually
+  // fetched.
   const stats = [
     video.view_count != null && `${formatCount(video.view_count)} views`,
     video.like_count != null && `${formatCount(video.like_count)} likes`,
@@ -36,7 +47,7 @@ export function VideoCard({
     <Card className="overflow-hidden transition-shadow hover:shadow-sm">
       <div className="flex items-center gap-2.5 p-2">
         {/* Clicking the thumbnail or title expands the embed below
-            this card instead of leaving the site — requirement 2. */}
+            this card instead of leaving the site. */}
         <button
           type="button"
           onClick={() => toggle(video.id)}
@@ -58,11 +69,11 @@ export function VideoCard({
 
           <div className="min-w-0 flex-1">
             <p className="line-clamp-1 text-xs font-medium leading-snug hover:underline sm:text-sm">
-              {video.title ?? `youtube.com/watch?v=${video.youtube_id}`}
+              {video.title ?? fallbackTitle}
             </p>
-            {video.channel_name && (
+            {attributionName && (
               <p className="truncate text-[11px] text-muted-foreground">
-                {video.channel_name}
+                {attributionName}
               </p>
             )}
             {stats.length > 0 && (
@@ -72,6 +83,11 @@ export function VideoCard({
             )}
 
             <div className="mt-1 flex flex-wrap items-center gap-1">
+              {isTwitch && (
+                <Badge className="border-transparent bg-[#9146FF] px-1.5 py-0 text-[10px] text-white">
+                  Twitch
+                </Badge>
+              )}
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                 {video.category}
               </Badge>
@@ -89,7 +105,12 @@ export function VideoCard({
         <div className="flex-shrink-0">{action}</div>
       </div>
 
-      {isPlaying && <VideoEmbed youtubeId={video.youtube_id} />}
+      {isPlaying &&
+        (isTwitch ? (
+          <TwitchEmbed slug={video.twitch_clip_slug!} />
+        ) : (
+          <VideoEmbed youtubeId={video.youtube_id!} />
+        ))}
     </Card>
   );
 }

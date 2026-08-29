@@ -3,9 +3,12 @@ import { TIME_RANGES, TIME_RANGE_LABELS, type TimeRange } from "@/lib/time-range
 import { cn } from "@/lib/utils";
 
 export function TimeRangeFilter({
+  basePath,
   categorySlug,
   active,
 }: {
+  // e.g. "/youtube" or "/twitch" — links become `${basePath}/${categorySlug}?range=...`.
+  basePath: string;
   categorySlug: string;
   active: TimeRange;
 }) {
@@ -14,7 +17,7 @@ export function TimeRangeFilter({
       {TIME_RANGES.map((range) => (
         <Link
           key={range}
-          href={`/category/${categorySlug}?range=${range}`}
+          href={`${basePath}/${categorySlug}?range=${range}`}
           className={cn(
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
             range === active

@@ -1,22 +1,23 @@
-import {
-  SELECTABLE_CATEGORIES,
-  type VideoCategory,
-  type SelectableVideoCategory,
-} from "@/lib/types/database.types";
+import type { VideoCategory } from "@/lib/types/database.types";
 
-// URL-safe slug for a category, used for /category/<slug> routes.
-// "Cop Slop" -> "cop-slop", "Just Chatting" -> "just-chatting", etc.
+// URL-safe slug for a category, used for /youtube/<slug> and
+// /twitch/<slug> routes. "Cop Slop" -> "cop-slop", "Just Chatting" ->
+// "just-chatting", etc.
 export function categorySlug(category: VideoCategory): string {
   return category.toLowerCase().replace(/\s+/g, "-");
 }
 
-// Reverse lookup: turns a route param back into a real, currently
-// browsable category, or null if it doesn't match one. Deliberately
-// checks against SELECTABLE_CATEGORIES (not the full VIDEO_CATEGORIES
-// enum list) — so a slug for a removed category like /category/irl
-// or /category/variety no longer resolves, and the route 404s, even
-// though "IRL" and "Variety" are still valid values a video row can
-// hold in the database.
-export function categoryFromSlug(slug: string): SelectableVideoCategory | null {
-  return SELECTABLE_CATEGORIES.find((c) => categorySlug(c) === slug) ?? null;
+// Reverse lookup: turns a route param back into a real category from
+// the given platform-specific allowed list, or null if it doesn't
+// match one. Generic over the allowed list rather than hardcoding
+// one, since /youtube/[slug] and /twitch/[slug] each have their own
+// (different-sized) set of browsable categories — a slug that's
+// valid on one platform but not the other correctly 404s on the
+// wrong one (e.g. /twitch/gaming, since "Gaming" isn't in
+// TWITCH_SELECTABLE_CATEGORIES).
+export function categoryFromSlug<T extends VideoCategory>(
+  slug: string,
+  allowed: readonly T[]
+): T | null {
+  return allowed.find((c) => categorySlug(c) === slug) ?? null;
 }

@@ -7,11 +7,12 @@ import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
 import { categoryFromSlug } from "@/lib/categories";
+import { YOUTUBE_SELECTABLE_CATEGORIES } from "@/lib/types/database.types";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 import type { Video } from "@/lib/types/database.types";
 
-export default async function CategoryPage({
+export default async function YoutubeCategoryPage({
   params,
   searchParams,
 }: {
@@ -19,33 +20,26 @@ export default async function CategoryPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { slug } = await params;
-  const category = categoryFromSlug(slug);
-
-  // Unknown slug (typo, stale link, made-up value) — 404 rather than
-  // silently showing an empty or wrong list.
+  // Resolved against YOUTUBE_SELECTABLE_CATEGORIES specifically — a
+  // slug that's only valid on Twitch (there currently isn't one, but
+  // the two lists are independent) or isn't a real category at all
+  // 404s here, rather than silently showing an empty/wrong list.
+  const category = categoryFromSlug(slug, YOUTUBE_SELECTABLE_CATEGORIES);
   if (!category) notFound();
 
-  // Requirement 7/9: defaults to weekly; an unrecognized ?range=
-  // value (typo, stale link) also falls back to weekly rather than
-  // erroring.
   const range = parseTimeRange((await searchParams).range);
   const since = timeRangeSince(range);
 
   const [profile, supabase] = [await getCurrentProfile(), await createClient()];
 
-  // Requirement 5: ranked by submissions within the selected window,
-  // not all-time submission_count — see videos_ranked_by_category()
-  // in schema.sql. Works identically for logged-out visitors
-  // (requirement 8) since it's just a read.
+  // p_source: "youtube" is what keeps this page from also showing
+  // Twitch clips in the same category (e.g. LSF) — see schema.sql.
   const { data: rankedRows } = await supabase.rpc("videos_ranked_by_category", {
     p_category: category,
+    p_source: "youtube",
     p_since: since,
   });
 
-  // Requirement 6: the card's submission-count badge should reflect
-  // *why* a video is ranked where it is, so it shows the windowed
-  // count while "range" is anything but all-time. vote_count is left
-  // exactly as returned (all-time) — upvotes are never windowed.
   const videos: Video[] | undefined = rankedRows?.map((row) => ({
     id: row.id,
     source: row.source,
@@ -83,17 +77,17 @@ export default async function CategoryPage({
     <div className="flex flex-col gap-4">
       <div>
         <Link
-          href="/"
+          href="/youtube"
           className="text-sm text-muted-foreground hover:text-foreground hover:underline"
         >
-          ← Back to categories
+          ← Back to YouTube categories
         </Link>
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category}
           </h1>
-          <TimeRangeFilter categorySlug={slug} active={range} />
+          <TimeRangeFilter basePath="/youtube" categorySlug={slug} active={range} />
         </div>
       </div>
 

@@ -5,18 +5,31 @@ import { submitVideo } from "@/app/actions/videos";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { SELECTABLE_CATEGORIES, type SelectableVideoCategory } from "@/lib/types/database.types";
+import type { VideoSource, SelectableVideoCategory } from "@/lib/types/database.types";
 import { cn } from "@/lib/utils";
 
-export function SubmitVideoForm() {
+export function SubmitVideoForm({
+  platform,
+  categories,
+}: {
+  // Which platform this form instance is locked to — determines the
+  // placeholder text, the wrong-URL error message, and gets passed
+  // to submitVideo() so it can reject a URL that doesn't match.
+  platform: VideoSource;
+  // This platform's own selectable category list (8 for YouTube, 2
+  // for Twitch) — never the full shared list.
+  categories: readonly SelectableVideoCategory[];
+}) {
   const [url, setUrl] = useState("");
-  // Requirement 5: category is required — no default selected, so
-  // submitting with the placeholder still in place is blocked by
-  // `required` on the <select> plus the empty-string check below.
+  // Category is required — no default selected, so submitting with
+  // the placeholder still in place is blocked by `required` on the
+  // <select> plus the empty-string check below.
   const [category, setCategory] = useState<SelectableVideoCategory | "">("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const platformLabel = platform === "youtube" ? "YouTube video" : "Twitch clip";
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -29,11 +42,11 @@ export function SubmitVideoForm() {
     }
 
     startTransition(async () => {
-      const result = await submitVideo(url, category);
+      const result = await submitVideo(url, category, platform);
       if ("error" in result) {
         setError(result.error);
       } else {
-        setSuccess("Video submitted!");
+        setSuccess("Submitted!");
         setUrl("");
         setCategory("");
       }
@@ -51,7 +64,7 @@ export function SubmitVideoForm() {
                 required
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="Paste a YouTube video URL…"
+                placeholder={`Paste a ${platformLabel} URL…`}
                 disabled={isPending}
                 className="h-11 pr-9 text-base"
               />
@@ -82,7 +95,7 @@ export function SubmitVideoForm() {
               <option value="" disabled>
                 Category…
               </option>
-              {SELECTABLE_CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <option key={c} value={c} className="text-foreground">
                   {c}
                 </option>
@@ -90,7 +103,7 @@ export function SubmitVideoForm() {
             </select>
 
             <Button type="submit" disabled={isPending} size="lg" className="h-11">
-              {isPending ? "Submitting…" : "Submit video"}
+              {isPending ? "Submitting…" : "Submit"}
             </Button>
           </div>
 

@@ -3,16 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
-import { SELECTABLE_CATEGORIES, type SelectableVideoCategory } from "@/lib/types/database.types";
+import type { VideoCategory } from "@/lib/types/database.types";
 import { categorySlug } from "@/lib/categories";
 
 // Gradient class strings live here (a scanned path — see
 // tailwind.config.ts content globs) so Tailwind actually generates
-// the CSS for them. Only the 8 currently-browsable categories have
-// an entry — "All", "Just Chatting", "IRL", "Slots", and "Variety"
-// were removed from the UI (see conversation), so there's nothing
-// left that needs a gradient for them here.
-const GRADIENTS: Record<SelectableVideoCategory, string> = {
+// the CSS for them. Covers every category either platform currently
+// offers — YouTube's 8 and Twitch's 2 (LSF, Funny), which are a
+// subset of the same 8, so one shared map covers both.
+const GRADIENTS: Partial<Record<VideoCategory, string>> = {
   Gaming: "bg-gradient-to-br from-violet-500 to-purple-700",
   Funny: "bg-gradient-to-br from-rose-500 to-pink-700",
   LSF: "bg-gradient-to-br from-amber-500 to-orange-700",
@@ -22,21 +21,13 @@ const GRADIENTS: Record<SelectableVideoCategory, string> = {
   Horror: "bg-gradient-to-br from-slate-600 to-slate-900",
   Music: "bg-gradient-to-br from-cyan-500 to-sky-700",
 };
+const FALLBACK_GRADIENT = "bg-gradient-to-br from-zinc-500 to-zinc-800";
 
-// Poster for one card: tries /public/categories/<slug>.jpg first, and
-// silently falls back to the existing gradient (still rendered
-// underneath, always) if that file 404s or hasn't been added yet.
-// Each instance owns its own imgError state since map items each get
-// their own component instance/hooks. No text overlay on the image
-// itself — the category name is rendered below the poster instead
-// (see the Link markup in CategoryGrid).
-function CategoryPoster({
-  slug,
-  gradient,
-}: {
-  slug: string;
-  gradient: string;
-}) {
+// Poster for one card: tries /public/categories/<slug>.jpg first
+// (shared across platforms — "LSF" has one cover image regardless of
+// whether it's reached via /youtube/lsf or /twitch/lsf), and silently
+// falls back to the gradient if that file 404s or hasn't been added.
+function CategoryPoster({ slug, gradient }: { slug: string; gradient: string }) {
   const [imgError, setImgError] = useState(false);
 
   return (
@@ -54,10 +45,17 @@ function CategoryPoster({
   );
 }
 
-export function CategoryGrid() {
+export function CategoryGrid({
+  categories,
+  basePath,
+}: {
+  categories: readonly VideoCategory[];
+  // "/youtube" or "/twitch" — each tile links to `${basePath}/${slug}`.
+  basePath: string;
+}) {
   const [query, setQuery] = useState("");
 
-  const categories = SELECTABLE_CATEGORIES.filter((name) =>
+  const filtered = categories.filter((name) =>
     name.toLowerCase().includes(query.trim().toLowerCase())
   );
 
@@ -77,16 +75,16 @@ export function CategoryGrid() {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        {categories.map((name) => {
+        {filtered.map((name) => {
           const slug = categorySlug(name);
           return (
-            <Link key={slug} href={`/category/${slug}`} className="block w-36 no-underline">
-              <CategoryPoster slug={slug} gradient={GRADIENTS[name]} />
+            <Link key={slug} href={`${basePath}/${slug}`} className="block w-36 no-underline">
+              <CategoryPoster slug={slug} gradient={GRADIENTS[name] ?? FALLBACK_GRADIENT} />
               <div className="mt-1 truncate text-sm">{name}</div>
             </Link>
           );
         })}
-        {categories.length === 0 && (
+        {filtered.length === 0 && (
           <p className="w-full py-6 text-center text-sm text-muted-foreground">
             No categories match &ldquo;{query}&rdquo;.
           </p>
