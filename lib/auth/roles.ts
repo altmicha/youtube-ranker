@@ -1,41 +1,71 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types/database.types";
+import type { User } from "@supabase/supabase-js";
+
+// "Incognito works, but old cookies hang on mobile" points at a real
+// network hang during the refresh-token round trip (a fresh/empty
+// session never needs to refresh anything, so it never hits this
+// slow path) — not just a fast error response. Checking the `error`
+// field alone doesn't help if the call never resolves at all, so
+// this bounds it with a hard timeout: if Supabase doesn't answer in
+// time, treat it exactly like an auth error (fail open) instead of
+// leaving the render waiting.
+const AUTH_CHECK_TIMEOUT_MS = 2500;
 
 /**
  * Returns the signed-in user's profile row (including role & points),
  * or null if not signed in. Safe to call from Server Components,
  * Server Actions, and Route Handlers.
  *
- * There is no session refresh in middleware (deliberately — see
- * middleware removal). This function is the single place auth state
- * gets checked, so it's also the single place a stale/invalid session
- * (e.g. "Invalid Refresh Token: Refresh Token Not Found" after a
- * revoked or expired session) gets handled: on any auth error, treat
- * the request as logged out immediately — no retry — rather than
- * letting the error propagate and break the page.
+ * There is no session refresh in middleware (deliberately). This
+ * function is the single place auth state gets checked, so it's also
+ * the single place a stale/invalid/slow session (e.g. "Invalid
+ * Refresh Token: Refresh Token Not Found" after a revoked or expired
+ * session, or a hung refresh call) gets handled: on any auth error OR
+ * timeout, treat the request as logged out immediately — no retry —
+ * rather than letting it propagate or hang the page.
  */
 export async function getCurrentProfile(): Promise<Profile | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
 
-  if (error || !user) {
-    if (error) {
+  let user: User | null = null;
+  let authFailed = false;
+
+  try {
+    const result = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("auth check timed out")),
+          AUTH_CHECK_TIMEOUT_MS
+        )
+      ),
+    ]);
+    user = result.data.user;
+    authFailed = !!result.error;
+  } catch {
+    // Timed out, or getUser() itself threw (e.g. malformed cookie).
+    authFailed = true;
+  }
+
+  if (authFailed || !user) {
+    if (authFailed) {
       // Best-effort cookie cleanup. This succeeds when called from a
       // Server Action or Route Handler (e.g. app/actions/*.ts,
       // app/auth/callback/route.ts) — both can write cookies, so the
       // bad session cookie actually gets cleared there. When called
       // from a plain Server Component render (e.g. rendering the
-      // homepage), Next.js doesn't allow cookie writes at all, so
-      // this is a harmless no-op — the same restriction already
-      // handled by the try/catch in lib/supabase/server.ts's setAll.
-      // Either way, this function still returns null immediately
-      // below: the page renders as logged-out regardless of whether
-      // the cookie write landed.
-      await supabase.auth.signOut().catch(() => {});
+      // homepage on first load), Next.js doesn't allow cookie writes
+      // at all, so this is a harmless no-op there — the client-side
+      // fallback in components/session-guard.tsx is what actually
+      // clears the cookie in that specific case, since browser JS has
+      // no such restriction. Race this too, so a slow signOut() can't
+      // reintroduce the same hang we just avoided above.
+      await Promise.race([
+        supabase.auth.signOut().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, AUTH_CHECK_TIMEOUT_MS)),
+      ]);
     }
     return null;
   }

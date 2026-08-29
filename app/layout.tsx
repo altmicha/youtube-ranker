@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SessionGuard } from "@/components/session-guard";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -46,6 +47,11 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
+        {/* Requirement 4: one-time client-side fallback. Renders
+            nothing — runs a session check after the page has already
+            painted and, if broken, clears the local session and
+            reloads once. Mounted here so it covers every page. */}
+        <SessionGuard />
         <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
             {/* Left side: logo, plus Log in / Sign up when signed out. */}
