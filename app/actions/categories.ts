@@ -177,6 +177,17 @@ export async function uploadCategoryImage(
   if (!file.type.startsWith("image/")) {
     return { error: "That file doesn't look like an image." };
   }
+  // Requirement 6: cap category images — these render at a small
+  // fixed 144×192px card size, so there's no reason to store/serve a
+  // multi-megabyte original. Rejecting oversized uploads here (rather
+  // than silently accepting and slowing down every page that shows
+  // this card) is the safe fix that needs no new dependencies — actual
+  // server-side resizing would need an image library this project
+  // doesn't have.
+  const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB
+  if (file.size > MAX_IMAGE_BYTES) {
+    return { error: "Image is too large — please use a file under 2MB." };
+  }
 
   const supabase = await createClient();
 

@@ -34,6 +34,8 @@ function PlatformPoster({
         <img
           src={`/platforms/${slug}.jpg`}
           alt=""
+          loading="lazy"
+          decoding="async"
           onError={() => setImgError(true)}
           className="absolute inset-0 h-full w-full object-cover"
         />

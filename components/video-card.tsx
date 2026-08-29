@@ -67,6 +67,8 @@ export function VideoCard({
             <img
               src={video.thumbnail_url}
               alt=""
+              loading="lazy"
+              decoding="async"
               className="h-10 w-[72px] flex-shrink-0 rounded object-cover sm:h-12 sm:w-[85px]"
             />
           ) : (

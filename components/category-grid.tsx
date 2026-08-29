@@ -53,6 +53,8 @@ function CategoryPoster({
         <img
           src={imageUrl}
           alt=""
+          loading="lazy"
+          decoding="async"
           onError={() => setImgError(true)}
           className="absolute inset-0 h-full w-full object-cover"
         />

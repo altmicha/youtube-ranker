@@ -3,18 +3,39 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
+import { LoadMoreLink, PAGE_SIZE } from "@/components/load-more-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 
-export default async function AllVideosPage() {
+export default async function AllVideosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ take?: string }>;
+}) {
   const [profile, supabase] = [await getCurrentProfile(), await createClient()];
 
-  const { data: videos } = await supabase
+  // Same 30-per-load pattern as the category pages.
+  const { take: takeParam } = await searchParams;
+  const requestedTake = parseInt(takeParam ?? "", 10);
+  const take = Number.isFinite(requestedTake) && requestedTake > PAGE_SIZE
+    ? Math.min(requestedTake, 500)
+    : PAGE_SIZE;
+
+  const { data: videos, error: videosError } = await supabase
     .from("videos")
     .select("*")
     .eq("is_removed", false)
     .order("submission_count", { ascending: false })
-    .limit(50);
+    .limit(take);
+
+  if (videosError) {
+    console.error("AllVideosPage: videos query failed", {
+      code: videosError.code,
+      message: videosError.message,
+    });
+  }
+
+  const hasMore = (videos?.length ?? 0) === take;
 
   // Look up display names for whatever categories these videos
   // actually reference, keyed by (source, category slug) — the same
@@ -50,6 +71,11 @@ export default async function AllVideosPage() {
         <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
           All videos
         </h1>
+        {videosError && (
+          <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Could not load videos: {videosError.message}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -70,13 +96,14 @@ export default async function AllVideosPage() {
             />
           ))}
         </VideoPlayerProvider>
-        {(!videos || videos.length === 0) && (
+        {(!videos || videos.length === 0) && !videosError && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
               No videos submitted yet — be the first!
             </CardContent>
           </Card>
         )}
+        <LoadMoreLink href={`/videos?take=${take + PAGE_SIZE}`} hasMore={hasMore} />
       </div>
     </div>
   );

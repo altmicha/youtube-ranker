@@ -5,6 +5,7 @@ import { getCurrentProfile } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
+import { LoadMoreLink, PAGE_SIZE } from "@/components/load-more-link";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
@@ -15,14 +16,11 @@ export default async function TwitchCategoryPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; take?: string }>;
 }) {
   const { slug } = await params;
   const supabase = await createClient();
 
-  // Live lookup by (platform, slug) — used only to confirm the slug
-  // is real and to get its display name; the actual video filter
-  // below uses (source, category) directly, not this row's id.
   const { data: category } = await supabase
     .from("categories")
     .select("*")
@@ -32,17 +30,17 @@ export default async function TwitchCategoryPage({
 
   if (!category) notFound();
 
-  const range = parseTimeRange((await searchParams).range);
+  const sp = await searchParams;
+  const range = parseTimeRange(sp.range);
   const since = timeRangeSince(range);
+
+  const requestedTake = parseInt(sp.take ?? "", 10);
+  const take = Number.isFinite(requestedTake) && requestedTake > PAGE_SIZE
+    ? Math.min(requestedTake, 500)
+    : PAGE_SIZE;
 
   const profile = await getCurrentProfile();
 
-  // Requirement 2/5: the exact same query shape as /videos — plain
-  // .from("videos").select("*"), just with source+category filters
-  // added — instead of a custom RPC. That RPC broke three separate
-  // times against this database (enum/text mismatches, stale
-  // signatures); this way there's no custom SQL function left to
-  // drift out of sync with the schema.
   const { data: baseVideos, error: videosError } = await supabase
     .from("videos")
     .select("*")
@@ -50,7 +48,7 @@ export default async function TwitchCategoryPage({
     .eq("category", slug)
     .eq("is_removed", false)
     .order("submission_count", { ascending: false })
-    .limit(50);
+    .limit(take);
 
   if (videosError) {
     console.error("TwitchCategoryPage: videos query failed", {
@@ -60,8 +58,8 @@ export default async function TwitchCategoryPage({
     });
   }
 
-  // Requirement 3: windowed ranking (daily/weekly/monthly) computed
-  // in JS from a plain submissions query — see lib/rank-videos.ts.
+  const hasMore = (baseVideos?.length ?? 0) === take;
+
   const videos = await rankVideosByWindow(supabase, baseVideos ?? [], since);
 
   let upvotedVideoIds = new Set<string>();
@@ -94,12 +92,10 @@ export default async function TwitchCategoryPage({
           <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} />
         </div>
 
-        {/* Requirement: show the real filter being used. */}
         <p className="mt-1 font-mono text-xs text-muted-foreground">
           filter: source=twitch · category={slug}
         </p>
 
-        {/* Requirement 4: show the real error, not a silent/blank page. */}
         {videosError && (
           <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             Could not load videos: {videosError.message}
@@ -133,6 +129,10 @@ export default async function TwitchCategoryPage({
             </CardContent>
           </Card>
         )}
+        <LoadMoreLink
+          href={`/twitch/${slug}?range=${range}&take=${take + PAGE_SIZE}`}
+          hasMore={hasMore}
+        />
       </div>
     </div>
   );

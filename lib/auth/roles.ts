@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types/database.types";
@@ -16,7 +17,11 @@ const AUTH_CHECK_TIMEOUT_MS = 2500;
 /**
  * Returns the signed-in user's profile row (including role & points),
  * or null if not signed in. Safe to call from Server Components,
- * Server Actions, and Route Handlers.
+ * Server Actions, and Route Handlers. Wrapped in React's cache() so
+ * multiple components calling this within the same request (e.g. the
+ * header's login-state and points-badge pieces, each in their own
+ * Suspense boundary — see app/layout.tsx) only trigger one actual
+ * auth check / DB round trip, not one per caller.
  *
  * There is no session refresh in middleware (deliberately). This
  * function is the single place auth state gets checked, so it's also
@@ -26,7 +31,7 @@ const AUTH_CHECK_TIMEOUT_MS = 2500;
  * timeout, treat the request as logged out immediately — no retry —
  * rather than letting it propagate or hang the page.
  */
-export async function getCurrentProfile(): Promise<Profile | null> {
+export const getCurrentProfile = cache(async (): Promise<Profile | null> => {
   const supabase = await createClient();
 
   let user: User | null = null;
@@ -77,7 +82,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     .single();
 
   return profile ?? null;
-}
+});
 
 /** Redirects to /login if there's no signed-in user. Returns the profile. */
 export async function requireUser(): Promise<Profile> {
