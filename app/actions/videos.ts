@@ -5,20 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
 import { extractTwitchClipSlug, fetchTwitchClipMetadata } from "@/lib/twitch";
-import {
-  YOUTUBE_SELECTABLE_CATEGORIES,
-  TWITCH_SELECTABLE_CATEGORIES,
-  type SelectableVideoCategory,
-  type YoutubeSelectableCategory,
-  type TwitchSelectableCategory,
-  type VideoSource,
-} from "@/lib/types/database.types";
+import type { VideoSource } from "@/lib/types/database.types";
 
 export type SubmitVideoResult = { error: string } | { success: true };
 
 export async function submitVideo(
   url: string,
-  category: SelectableVideoCategory,
+  categorySlug: string,
   platform: VideoSource
 ): Promise<SubmitVideoResult> {
   // Feature: only logged-in users can submit. getCurrentProfile()
@@ -29,15 +22,8 @@ export async function submitVideo(
     return { error: "You need to sign in to submit a video." };
   }
 
-  // Category is required, and validated against the SPECIFIC
-  // platform's allowed list — not the shared full set. This is what
-  // stops e.g. a hand-built request from submitting a YouTube video
-  // under "Cop Slop" via the /twitch form's action call, since
-  // TWITCH_SELECTABLE_CATEGORIES doesn't include it.
-  const allowedCategories: readonly SelectableVideoCategory[] =
-    platform === "youtube" ? YOUTUBE_SELECTABLE_CATEGORIES : TWITCH_SELECTABLE_CATEGORIES;
-  if (!allowedCategories.includes(category)) {
-    return { error: "Choose a valid category for this page." };
+  if (!categorySlug) {
+    return { error: "Choose a category first." };
   }
 
   const trimmed = url.trim();
@@ -71,23 +57,53 @@ export async function submitVideo(
 
   const supabase = await createClient();
 
+  // Categories are creator-managed rows, looked up by the SAME two
+  // plain values (platform, slug) that both the submit RPCs and the
+  // category pages use — no id/uuid anywhere in this comparison, per
+  // requirement 3. The submit_video()/submit_twitch_clip() Postgres
+  // functions re-validate this too (defense in depth), but this
+  // catches an invalid category earlier with a clean error message.
+  const { data: category, error: categoryError } = await supabase
+    .from("categories")
+    .select("slug, platform")
+    .eq("platform", platform)
+    .eq("slug", categorySlug)
+    .single();
+
+  if (categoryError) {
+    console.error("submitVideo: category lookup failed", {
+      platform,
+      categorySlug,
+      code: categoryError.code,
+      message: categoryError.message,
+    });
+    return { error: `Could not look up that category: ${categoryError.message}` };
+  }
+  if (!category) {
+    return { error: "Choose a valid category for this page." };
+  }
+
   // Rate limit: normal users can submit at most 3 videos per hour,
-  // per category AND per platform (3 YouTube LSF + 3 Twitch LSF in
-  // the same hour is fine — they're independent buckets, since the
-  // two platforms are now clearly separate pages/experiences; a 4th
-  // YouTube LSF isn't). Creators are exempt.
+  // per category — filtered by the same (source, category slug) pair
+  // used everywhere else, so 3 YouTube "lsf" + 3 Twitch "lsf" in the
+  // same hour is fine (different source values). Creators are exempt.
   if (profile.role !== "creator") {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { count, error: countError } = await supabase
       .from("submissions")
       .select("id, videos!inner(category, source)", { count: "exact", head: true })
       .eq("user_id", profile.id)
-      .eq("videos.category", category)
+      .eq("videos.category", categorySlug)
       .eq("videos.source", platform)
       .gte("created_at", oneHourAgo);
 
     if (countError) {
-      return { error: "Something went wrong. Try again." };
+      console.error("submitVideo: rate-limit count query failed", {
+        categorySlug,
+        code: countError.code,
+        message: countError.message,
+      });
+      return { error: `Could not check the submission limit: ${countError.message}` };
     }
     if ((count ?? 0) >= 3) {
       return { error: "You can only submit 3 videos per hour in this category." };
@@ -95,9 +111,9 @@ export async function submitVideo(
   }
 
   if (youtubeId) {
-    return submitYoutubeVideo(supabase, youtubeId, category as (typeof YOUTUBE_SELECTABLE_CATEGORIES)[number]);
+    return submitYoutubeVideo(supabase, youtubeId, categorySlug);
   }
-  return submitTwitchClip(supabase, twitchSlug!, category as (typeof TWITCH_SELECTABLE_CATEGORIES)[number]);
+  return submitTwitchClip(supabase, twitchSlug!, categorySlug);
 }
 
 // Awaited return type of createClient() — kept local rather than
@@ -108,7 +124,7 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 async function submitYoutubeVideo(
   supabase: SupabaseServerClient,
   videoId: string,
-  category: YoutubeSelectableCategory
+  categorySlug: string
 ): Promise<SubmitVideoResult> {
   // Fetch title/thumbnail/channel/stats from the YouTube Data API v3.
   // fetchYoutubeMetadata() never throws — it returns null on any
@@ -118,20 +134,15 @@ async function submitYoutubeVideo(
   const metadata = await fetchYoutubeMetadata(videoId);
 
   // submit_video() atomically creates-or-updates the video row and
-  // inserts a submissions row for the current user. The DB's
-  // unique(video_id, user_id) constraint stops the same user from
-  // submitting the same video twice. If the video already exists,
-  // the category passed here is ignored (first submitter's choice
-  // sticks), but view/like/dislike counts always take this fresher
-  // fetch when available — see schema.sql. This is the exact same
-  // call as before Twitch support existed — nothing about the
-  // YouTube path changed.
+  // inserts a submissions row for the current user. Requirement 1:
+  // category is saved as the plain slug (e.g. "music"), the same
+  // value /youtube/[slug] filters by — see schema.sql.
   const { error } = await supabase.rpc("submit_video", {
     p_youtube_id: videoId,
     p_title: metadata?.title ?? null,
     p_thumbnail_url: metadata?.thumbnailUrl ?? null,
     p_channel_name: metadata?.channelName ?? null,
-    p_category: category,
+    p_category: categorySlug,
     p_view_count: metadata?.viewCount ?? null,
     p_like_count: metadata?.likeCount ?? null,
     p_dislike_count: metadata?.dislikeCount ?? null,
@@ -139,10 +150,18 @@ async function submitYoutubeVideo(
   });
 
   if (error) {
+    console.error("submitYoutubeVideo: submit_video RPC failed", {
+      videoId,
+      categorySlug,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     if (error.code === "23505") {
       return { error: "You've already submitted this video." };
     }
-    return { error: "Something went wrong saving that video. Try again." };
+    return { error: `Could not save video: ${error.message}` };
   }
 
   revalidatePath("/youtube");
@@ -153,7 +172,7 @@ async function submitYoutubeVideo(
 async function submitTwitchClip(
   supabase: SupabaseServerClient,
   slug: string,
-  category: TwitchSelectableCategory
+  categorySlug: string
 ): Promise<SubmitVideoResult> {
   // Fetch title/thumbnail/broadcaster/view count from Twitch Helix.
   // Same fail-open contract as the YouTube fetch: never throws,
@@ -166,16 +185,24 @@ async function submitTwitchClip(
     p_title: metadata?.title ?? null,
     p_thumbnail_url: metadata?.thumbnailUrl ?? null,
     p_broadcaster_name: metadata?.broadcasterName ?? null,
-    p_category: category,
+    p_category: categorySlug,
     p_view_count: metadata?.viewCount ?? null,
     p_published_at: metadata?.createdAt ?? null,
   });
 
   if (error) {
+    console.error("submitTwitchClip: submit_twitch_clip RPC failed", {
+      slug,
+      categorySlug,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     if (error.code === "23505") {
       return { error: "You've already submitted this clip." };
     }
-    return { error: "Something went wrong saving that clip. Try again." };
+    return { error: `Could not save clip: ${error.message}` };
   }
 
   revalidatePath("/twitch");
@@ -190,9 +217,7 @@ export async function removeVideo(videoId: string): Promise<RemoveVideoResult> {
   // remove_video() in schema.sql independently re-checks the caller's
   // role too, so a client can't bypass this by calling the action
   // some other way. There is no public update policy on videos, so
-  // this function is the only path that can set is_removed. Untouched
-  // by Twitch support — remove_video() operates purely on video_id,
-  // so it already works identically for both sources.
+  // this function is the only path that can set is_removed.
   const profile = await getCurrentProfile();
   if (!profile) {
     return { error: "You need to sign in." };
@@ -213,9 +238,7 @@ export async function removeVideo(videoId: string): Promise<RemoveVideoResult> {
 
   // Removed videos are filtered out of the platform pages, category
   // pages, and creator dashboard (is_removed = false), so revalidating
-  // those paths makes them disappear immediately. The homepage itself
-  // no longer shows any video content, so there's nothing to
-  // revalidate there anymore.
+  // those paths makes them disappear immediately.
   revalidatePath("/youtube");
   revalidatePath("/twitch");
   revalidatePath("/creator");

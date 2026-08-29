@@ -9,9 +9,9 @@ export function ThemeToggle() {
   // Start as null (unknown) so we render nothing until mounted —
   // avoids a mismatch between server-rendered markup (which has no
   // way to know the user's stored/system preference) and the client.
-  // The blocking script in <head> (see app/layout.tsx) has already
-  // set the real class on <html> by the time this ever paints, so
-  // this brief "unknown" state never causes a visible flash.
+  // ThemeInit (see components/theme-init.tsx, mounted in
+  // app/layout.tsx) sets the real class on <html> on mount, slightly
+  // before or around the same time this component mounts too.
   const [isDark, setIsDark] = useState<boolean | null>(null);
 
   useEffect(() => {

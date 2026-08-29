@@ -33,6 +33,14 @@ export function extractYoutubeId(rawUrl: string): string | null {
 
   if (!id) return null;
 
+  // Requirement 5: defensively strip anything that shouldn't be part
+  // of the id — extra params like &list=, &index=, &t= should
+  // already be separated out by URLSearchParams/path-splitting above
+  // for a well-formed URL, but this guards against edge cases (e.g. a
+  // pasted URL with literal "&amp;" instead of "&", which
+  // URLSearchParams won't split on) before the format check below.
+  id = id.split(/[&?#]/)[0];
+
   // Standard YouTube video IDs are 11 chars of [A-Za-z0-9_-]
   const valid = /^[A-Za-z0-9_-]{11}$/.test(id);
   return valid ? id : null;

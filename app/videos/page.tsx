@@ -16,6 +16,15 @@ export default async function AllVideosPage() {
     .order("submission_count", { ascending: false })
     .limit(50);
 
+  // Look up display names for whatever categories these videos
+  // actually reference, keyed by (source, category slug) — the same
+  // pair everything else (submit, category pages, rate limiting) uses
+  // now. category_id is vestigial and unreliable, so it's not used
+  // here. There are only a handful of categories total, so just fetch
+  // them all rather than building a filtered query.
+  const { data: allCategories } = await supabase.from("categories").select("platform, slug, name");
+  const categoryNames = new Map(allCategories?.map((c) => [`${c.platform}::${c.slug}`, c.name]));
+
   let upvotedVideoIds = new Set<string>();
   if (profile && videos && videos.length > 0) {
     const { data: myVotes } = await supabase
@@ -36,7 +45,7 @@ export default async function AllVideosPage() {
           href="/"
           className="text-sm text-muted-foreground hover:text-foreground hover:underline"
         >
-          ← Back to categories
+          ← Back home
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
           All videos
@@ -49,6 +58,7 @@ export default async function AllVideosPage() {
             <VideoCard
               key={video.id}
               video={video}
+              categoryName={video.category ? categoryNames.get(`${video.source}::${video.category}`) ?? null : null}
               action={
                 <UpvoteButton
                   videoId={video.id}

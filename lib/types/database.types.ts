@@ -12,70 +12,23 @@
 // safe to replace this file with a generated one later.
 
 export type UserRole = "user" | "creator";
-
-// All 12 values that exist in the Postgres video_category enum.
-// Some of these are no longer offered in the UI at all (see
-// YOUTUBE_SELECTABLE_CATEGORIES / TWITCH_SELECTABLE_CATEGORIES below)
-// but a video row can still legitimately carry one — either a legacy
-// video submitted before a category was removed, or one migrated
-// into "Variety" as the hidden fallback bucket. This is what
-// Video.category and the Postgres enum are typed against, so
-// reads/writes always match what the DB can hold.
-export const VIDEO_CATEGORIES = [
-  "Gaming",
-  "Funny",
-  "LSF",
-  "Cop Slop",
-  "React",
-  "IRL",
-  "Slots",
-  "Sports",
-  "Horror",
-  "Variety",
-  "Music",
-  "Just Chatting",
-] as const;
-
-export type VideoCategory = (typeof VIDEO_CATEGORIES)[number];
-
-// Categories offered on the YouTube page (/youtube, /youtube/[slug],
-// and the YouTube submit form's category dropdown). "All", "Just
-// Chatting", "IRL", "Slots", and "Variety" were removed from the UI —
-// existing videos in those categories were migrated to "Variety" (see
-// supabase/schema.sql), which stays a valid DB value and now serves
-// only as an invisible catch-all: those videos are still visible on
-// /videos (unfiltered) but have no category tile or route of their
-// own anymore.
-export const YOUTUBE_SELECTABLE_CATEGORIES = [
-  "Gaming",
-  "Funny",
-  "LSF",
-  "Cop Slop",
-  "React",
-  "Sports",
-  "Horror",
-  "Music",
-] as const satisfies readonly VideoCategory[];
-
-export type YoutubeSelectableCategory = (typeof YOUTUBE_SELECTABLE_CATEGORIES)[number];
-
-// Categories offered on the Twitch page (/twitch, /twitch/[slug], and
-// the Twitch submit form's category dropdown) — deliberately a much
-// smaller set than YouTube's. Both platforms happen to share the
-// underlying "LSF"/"Funny" category *names* (same video_category
-// enum values), but which of the 12 each platform exposes is
-// independent — see videos_ranked_by_category()'s p_source parameter
-// in schema.sql for how a page like /twitch/lsf is kept from also
-// showing YouTube's LSF videos.
-export const TWITCH_SELECTABLE_CATEGORIES = ["LSF", "Funny"] as const satisfies readonly VideoCategory[];
-
-export type TwitchSelectableCategory = (typeof TWITCH_SELECTABLE_CATEGORIES)[number];
-
-// Either platform's selectable category — what a validated submission
-// category can be, regardless of which page it came from.
-export type SelectableVideoCategory = YoutubeSelectableCategory | TwitchSelectableCategory;
-
 export type VideoSource = "youtube" | "twitch";
+
+// Categories are a real, editable table now (creator-managed — see
+// app/actions/categories.ts) rather than a fixed enum. YouTube and
+// Twitch are separate lists: a category row belongs to exactly one
+// platform, so "LSF" on YouTube and "LSF" on Twitch are two distinct
+// rows with their own ids, not one shared value.
+export interface Category {
+  id: string;
+  platform: VideoSource;
+  name: string;
+  slug: string;
+  // Object path within the "category-covers" Storage bucket; null
+  // means no custom image uploaded — the UI falls back to a gradient.
+  image_path: string | null;
+  created_at: string;
+}
 
 export interface Profile {
   id: string;
@@ -96,7 +49,16 @@ export interface Video {
   thumbnail_url: string | null;
   channel_name: string | null;
   broadcaster_name: string | null;
-  category: VideoCategory;
+  // The category's slug (e.g. "music", "lsf") — plain text, matched
+  // directly against source + this value, no id/uuid involved. Kept
+  // in sync with a category row's slug by submit_video()/
+  // submit_twitch_clip(), but this field — not category_id — is what
+  // every read (category pages, rate limiting) actually filters on.
+  category: string | null;
+  // Vestigial — a leftover uuid FK from an earlier design; nothing
+  // reads it for filtering anymore (see `category` above). Kept only
+  // so existing rows aren't orphaned; safe to ignore.
+  category_id: string | null;
   view_count: number | null;
   like_count: number | null;
   dislike_count: number | null;
@@ -146,11 +108,25 @@ export interface Database {
         Update: Partial<Profile>;
         Relationships: [];
       };
+      categories: {
+        Row: Category;
+        Insert: Partial<Category> & { platform: VideoSource; name: string; slug: string };
+        Update: Partial<Category>;
+        Relationships: [];
+      };
       videos: {
         Row: Video;
         Insert: Partial<Video> & { source: VideoSource };
         Update: Partial<Video>;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "videos_category_id_fkey";
+            columns: ["category_id"];
+            isOneToOne: false;
+            referencedRelation: "categories";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       submissions: {
         Row: Submission;
@@ -261,7 +237,7 @@ export interface Database {
           p_title: string | null;
           p_thumbnail_url: string | null;
           p_channel_name: string | null;
-          p_category: YoutubeSelectableCategory;
+          p_category: string;
           p_view_count?: number | null;
           p_like_count?: number | null;
           p_dislike_count?: number | null;
@@ -285,26 +261,29 @@ export interface Database {
         Args: { p_video_id: string };
         Returns: undefined;
       };
+      remove_category: {
+        Args: { p_category_id: string };
+        Returns: undefined;
+      };
       submit_twitch_clip: {
         Args: {
           p_slug: string;
           p_title: string | null;
           p_thumbnail_url: string | null;
           p_broadcaster_name: string | null;
-          p_category: TwitchSelectableCategory;
+          p_category: string;
           p_view_count?: number | null;
           p_published_at?: string | null;
         };
         Returns: Submission;
       };
       videos_ranked_by_category: {
-        Args: { p_category: VideoCategory; p_source: VideoSource; p_since: string | null };
-        Returns: (Video & { window_submission_count: number })[];
+        Args: { p_source: VideoSource; p_category: string; p_since: string | null };
+        Returns: (Video & { category_name: string | null; window_submission_count: number })[];
       };
     };
     Enums: {
       user_role: UserRole;
-      video_category: VideoCategory;
       video_source: VideoSource;
     };
     CompositeTypes: {

@@ -729,3 +729,675 @@ create index submissions_created_at_idx on public.submissions (created_at);
 create index votes_video_id_idx on public.votes (video_id);
 create index point_awards_recipient_id_idx on public.point_awards (recipient_id);
 create index video_creator_awards_creator_id_idx on public.video_creator_awards (creator_id);
+
+
+-- =========================================================
+-- 8. DYNAMIC, CREATOR-MANAGED CATEGORIES
+--
+-- Replaces the fixed video_category enum as the thing videos are
+-- actually categorized by. The enum/column stay in place above
+-- (harmless, vestigial) rather than being dropped — safer than an
+-- irreversible column drop, and every new row still gets a default
+-- 'Variety' there for free. Everything going forward reads/writes
+-- videos.category_id instead.
+-- =========================================================
+
+create table if not exists public.categories (
+  id          uuid primary key default gen_random_uuid(),
+  platform    public.video_source not null,
+  name        text not null,
+  slug        text not null,
+  -- Object path within the "category-covers" Storage bucket (see
+  -- below). Null = no custom image uploaded yet; the app falls back
+  -- to a color gradient in that case.
+  image_path  text,
+  created_at  timestamptz not null default now(),
+  -- YouTube and Twitch are separate lists (requirement) — "LSF" can
+  -- exist once per platform, as two distinct rows, not one shared row.
+  unique (platform, slug)
+);
+
+alter table public.categories enable row level security;
+
+-- drop-then-create makes this block safely re-runnable if a policy
+-- was created wrong, missing, or only partially applied — matters
+-- here specifically because a botched or absent insert policy is the
+-- most common cause of "creating a category fails" (Postgres returns
+-- a 42501 row-level-security error, not a helpful message, if the
+-- INSERT is rejected by RLS).
+drop policy if exists "categories are publicly readable" on public.categories;
+create policy "categories are publicly readable"
+  on public.categories for select
+  using (true);
+
+-- Every write policy checks the caller's own profile role — same
+-- creator-only pattern used everywhere else in this schema, just via
+-- RLS directly rather than a SECURITY DEFINER function, since plain
+-- category CRUD has no other atomic side effects that need one (the
+-- one exception, "removing a category moves its videos to
+-- Uncategorized", is handled by the ON DELETE SET NULL foreign key
+-- below, not application code).
+drop policy if exists "creators can insert categories" on public.categories;
+create policy "creators can insert categories"
+  on public.categories for insert
+  with check (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  );
+
+drop policy if exists "creators can update categories" on public.categories;
+create policy "creators can update categories"
+  on public.categories for update
+  using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  )
+  with check (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  );
+
+drop policy if exists "creators can delete categories" on public.categories;
+create policy "creators can delete categories"
+  on public.categories for delete
+  using (
+    exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  );
+
+-- Seed: matches the categories that existed as hardcoded lists in the
+-- app before this migration. Safe to run more than once.
+insert into public.categories (platform, name, slug) values
+  ('youtube', 'Gaming', 'gaming'),
+  ('youtube', 'Funny', 'funny'),
+  ('youtube', 'LSF', 'lsf'),
+  ('youtube', 'Cop Slop', 'cop-slop'),
+  ('youtube', 'React', 'react'),
+  ('youtube', 'Sports', 'sports'),
+  ('youtube', 'Horror', 'horror'),
+  ('youtube', 'Music', 'music'),
+  ('twitch', 'LSF', 'lsf'),
+  ('twitch', 'Funny', 'funny')
+on conflict (platform, slug) do nothing;
+
+alter table public.videos
+  add column category_id uuid references public.categories(id) on delete set null;
+-- ON DELETE SET NULL is what satisfies "removing a category should
+-- not delete videos" — deleting a categories row automatically clears
+-- category_id on every video that referenced it (no app code, no
+-- explicit UPDATE needed), and a null category_id IS "Uncategorized":
+-- such a video simply has no category tile/page of its own anymore,
+-- but keeps showing on /videos (unfiltered) exactly like the old
+-- 'Variety' hidden-bucket videos always did.
+
+-- Backfill: map each video's old enum category (+ its source
+-- platform) to the matching new categories row. The old hidden
+-- fallback bucket, 'Variety', maps to NULL (Uncategorized) — which is
+-- exactly what it always functionally was. Safe to run more than
+-- once — it only ever touches rows that don't have a category_id yet.
+update public.videos v
+set category_id = c.id
+from public.categories c
+where c.platform = v.source
+  and c.name = v.category::text
+  and v.category is distinct from 'Variety'
+  and v.category_id is null;
+
+create index videos_category_id_idx on public.videos (category_id);
+create index categories_platform_idx on public.categories (platform);
+
+
+-- ---------------------------------------------------------
+-- 8a. submit_video() / submit_twitch_clip(), updated to take
+-- p_category_id instead of the old enum p_category. Each validates
+-- the category exists AND belongs to the right platform before
+-- writing anything — defense in depth alongside the app-level check
+-- in app/actions/videos.ts.
+-- ---------------------------------------------------------
+drop function if exists public.submit_video(text, text, text, text, public.video_category, bigint, bigint, bigint, timestamptz);
+
+create function public.submit_video(
+  p_youtube_id text,
+  p_title text,
+  p_thumbnail_url text,
+  p_channel_name text,
+  p_category_id uuid,
+  p_view_count bigint default null,
+  p_like_count bigint default null,
+  p_dislike_count bigint default null,
+  p_published_at timestamptz default null
+)
+returns public.submissions
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_video_id uuid;
+  v_was_removed boolean;
+  v_submission public.submissions;
+begin
+  if not exists (
+    select 1 from public.categories where id = p_category_id and platform = 'youtube'
+  ) then
+    raise exception 'Invalid category for YouTube';
+  end if;
+
+  select id, is_removed into v_video_id, v_was_removed
+    from public.videos where youtube_id = p_youtube_id;
+
+  if v_video_id is not null and v_was_removed then
+    delete from public.submissions where video_id = v_video_id;
+    delete from public.votes where video_id = v_video_id;
+    delete from public.video_creator_awards where video_id = v_video_id;
+
+    update public.videos
+      set is_removed = false,
+          title = p_title,
+          thumbnail_url = p_thumbnail_url,
+          channel_name = p_channel_name,
+          category_id = p_category_id,
+          view_count = p_view_count,
+          like_count = p_like_count,
+          dislike_count = p_dislike_count,
+          published_at = p_published_at
+      where id = v_video_id;
+
+  elsif v_video_id is null then
+    insert into public.videos (
+      youtube_id, title, thumbnail_url, channel_name, category_id,
+      view_count, like_count, dislike_count, published_at
+    )
+    values (
+      p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category_id,
+      p_view_count, p_like_count, p_dislike_count, p_published_at
+    )
+    returning id into v_video_id;
+
+  else
+    -- Existing, still-active video: backfill-only, category_id
+    -- untouched — same rule as before (first submitter's choice
+    -- sticks; renaming that category later still keeps this video
+    -- since it's linked by id, not name).
+    update public.videos
+      set title = coalesce(title, p_title),
+          thumbnail_url = coalesce(thumbnail_url, p_thumbnail_url),
+          channel_name = coalesce(channel_name, p_channel_name),
+          view_count = coalesce(p_view_count, view_count),
+          like_count = coalesce(p_like_count, like_count),
+          dislike_count = coalesce(p_dislike_count, dislike_count),
+          published_at = coalesce(published_at, p_published_at)
+      where id = v_video_id;
+  end if;
+
+  insert into public.submissions (video_id, user_id)
+  values (v_video_id, auth.uid())
+  returning * into v_submission;
+
+  return v_submission;
+end;
+$$;
+
+drop function if exists public.submit_twitch_clip(text, text, text, text, public.video_category, bigint, timestamptz);
+
+create function public.submit_twitch_clip(
+  p_slug text,
+  p_title text,
+  p_thumbnail_url text,
+  p_broadcaster_name text,
+  p_category_id uuid,
+  p_view_count bigint default null,
+  p_published_at timestamptz default null
+)
+returns public.submissions
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_video_id uuid;
+  v_was_removed boolean;
+  v_submission public.submissions;
+begin
+  if not exists (
+    select 1 from public.categories where id = p_category_id and platform = 'twitch'
+  ) then
+    raise exception 'Invalid category for Twitch';
+  end if;
+
+  select id, is_removed into v_video_id, v_was_removed
+    from public.videos where twitch_clip_slug = p_slug;
+
+  if v_video_id is not null and v_was_removed then
+    delete from public.submissions where video_id = v_video_id;
+    delete from public.votes where video_id = v_video_id;
+    delete from public.video_creator_awards where video_id = v_video_id;
+
+    update public.videos
+      set is_removed = false,
+          title = p_title,
+          thumbnail_url = p_thumbnail_url,
+          broadcaster_name = p_broadcaster_name,
+          category_id = p_category_id,
+          view_count = p_view_count,
+          published_at = p_published_at
+      where id = v_video_id;
+
+  elsif v_video_id is null then
+    insert into public.videos (
+      source, twitch_clip_slug, title, thumbnail_url, broadcaster_name,
+      category_id, view_count, published_at
+    )
+    values (
+      'twitch', p_slug, p_title, p_thumbnail_url, p_broadcaster_name,
+      p_category_id, p_view_count, p_published_at
+    )
+    returning id into v_video_id;
+
+  else
+    update public.videos
+      set title = coalesce(title, p_title),
+          thumbnail_url = coalesce(thumbnail_url, p_thumbnail_url),
+          broadcaster_name = coalesce(broadcaster_name, p_broadcaster_name),
+          view_count = coalesce(p_view_count, view_count),
+          published_at = coalesce(published_at, p_published_at)
+      where id = v_video_id;
+  end if;
+
+  insert into public.submissions (video_id, user_id)
+  values (v_video_id, auth.uid())
+  returning * into v_submission;
+
+  return v_submission;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
+-- 8b. videos_ranked_by_category(), updated to take a single
+-- p_category_id instead of separate p_category/p_source — a
+-- category's platform is now implied by which row you pass, so a
+-- separate source filter is redundant. This is also the actual fix
+-- for "/twitch/lsf shows YouTube's LSF videos too": that bug existed
+-- because category names were shared across platforms; now each
+-- platform's "LSF" is a distinct row with its own id, so filtering by
+-- category_id alone is airtight. Also joins categories to return the
+-- current display name, so a rename shows up immediately everywhere
+-- without any other code needing to change.
+-- ---------------------------------------------------------
+drop function if exists public.videos_ranked_by_category(public.video_category, public.video_source, timestamptz);
+
+create function public.videos_ranked_by_category(
+  p_category_id uuid,
+  p_since timestamptz default null
+)
+returns table (
+  id uuid,
+  source public.video_source,
+  youtube_id text,
+  twitch_clip_slug text,
+  title text,
+  thumbnail_url text,
+  channel_name text,
+  broadcaster_name text,
+  category_id uuid,
+  category_name text,
+  view_count bigint,
+  like_count bigint,
+  dislike_count bigint,
+  published_at timestamptz,
+  submission_count integer,
+  vote_count integer,
+  is_removed boolean,
+  created_at timestamptz,
+  window_submission_count bigint
+)
+language sql
+stable
+as $$
+  select
+    v.id, v.source, v.youtube_id, v.twitch_clip_slug,
+    v.title, v.thumbnail_url, v.channel_name, v.broadcaster_name,
+    v.category_id, c.name as category_name,
+    v.view_count, v.like_count, v.dislike_count, v.published_at,
+    v.submission_count, v.vote_count, v.is_removed, v.created_at,
+    count(s.id) filter (
+      where p_since is null or s.created_at >= p_since
+    ) as window_submission_count
+  from public.videos v
+  join public.categories c on c.id = v.category_id
+  left join public.submissions s on s.video_id = v.id
+  where v.category_id = p_category_id
+    and v.is_removed = false
+  group by v.id, c.name
+  having p_since is null
+      or count(s.id) filter (where s.created_at >= p_since) > 0
+  order by window_submission_count desc, v.submission_count desc
+  limit 50;
+$$;
+
+
+-- ---------------------------------------------------------
+-- 8c. Storage bucket for creator-uploaded category cover images.
+-- Public read (cards need to render for logged-out visitors too);
+-- write restricted to creators via the same role-check pattern as
+-- the categories table's own RLS policies above.
+-- ---------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('category-covers', 'category-covers', true)
+on conflict (id) do nothing;
+
+drop policy if exists "category images are publicly readable" on storage.objects;
+create policy "category images are publicly readable"
+  on storage.objects for select
+  using (bucket_id = 'category-covers');
+
+drop policy if exists "creators can upload category images" on storage.objects;
+create policy "creators can upload category images"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'category-covers'
+    and exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  );
+
+drop policy if exists "creators can replace category images" on storage.objects;
+create policy "creators can replace category images"
+  on storage.objects for update
+  using (
+    bucket_id = 'category-covers'
+    and exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  );
+
+drop policy if exists "creators can delete category images" on storage.objects;
+create policy "creators can delete category images"
+  on storage.objects for delete
+  using (
+    bucket_id = 'category-covers'
+    and exists (select 1 from public.profiles where id = auth.uid() and role = 'creator')
+  );
+
+
+-- =========================================================
+-- 9. SUPERSEDES SECTION 8a/8b's category_id-based filtering.
+--
+-- videos.category_id (uuid FK to categories.id) turned out fragile in
+-- practice across manual/partial migrations. This section converts
+-- videos.category from the original fixed enum into a plain text
+-- SLUG column (e.g. "music", "lsf") and rewrites submit_video(),
+-- submit_twitch_clip(), and videos_ranked_by_category() to key off
+-- (source, category) directly -- no id comparisons anywhere in the
+-- filter path. category_id is kept as a vestigial column (harmless,
+-- unused) rather than dropped. Also adds remove_category(), which
+-- app/actions/categories.ts already called but which never existed.
+--
+-- NOTE: this database's categories.platform column turned out to be
+-- plain `text`, not the video_source enum type — every comparison
+-- against videos.source (which IS the enum) is explicitly cast to
+-- text on both sides below to avoid "operator does not exist" errors.
+-- =========================================================
+
+-- =========================================================
+-- Definitive fix: videos.category must be a plain text SLUG
+-- (e.g. "music", "lsf"), matching exactly what submit and category
+-- pages both use. Converts the column from the old enum type,
+-- backfills existing rows, and rebuilds the three functions that
+-- touch it. Run this entire file in one go.
+-- =========================================================
+
+-- Convert videos.category from the old enum to plain text. USING
+-- category::text preserves the existing value's text (e.g. "Music",
+-- "LSF") during the conversion -- nothing is lost, it just becomes
+-- editable free text instead of a fixed enum label.
+alter table public.videos alter column category drop default;
+alter table public.videos alter column category type text using category::text;
+alter table public.videos alter column category drop not null;
+
+-- Backfill 1: if category_id already points at a real category row,
+-- that row's slug is the most reliable source of truth -- use it.
+update public.videos v
+set category = c.slug
+from public.categories c
+where v.category_id = c.id
+  and v.category is distinct from c.slug;
+
+-- Backfill 2 (the actual "Music" vs "music" bug): for anything still
+-- holding the old Title-Case enum text (e.g. "Music", "LSF") instead
+-- of a real slug, match it case-insensitively against a category's
+-- name on the same platform, and replace it with that category's
+-- slug. Skipped for values that are already a valid slug for this
+-- platform (idempotent).
+update public.videos v
+set category = c.slug
+from public.categories c
+where c.platform::text = v.source::text
+  and lower(c.name) = lower(v.category)
+  and v.category is distinct from c.slug
+  and not exists (
+    select 1 from public.categories c2
+    where c2.platform::text = v.source::text and c2.slug = v.category
+  );
+
+-- "Variety" was always the hidden fallback bucket with no real
+-- category row behind it -- treat it as Uncategorized (null) rather
+-- than a literal category value nothing will ever match.
+update public.videos set category = null where category = 'Variety';
+
+create index if not exists videos_source_category_idx on public.videos (source, category);
+
+
+-- ---------------------------------------------------------
+-- submit_video(): p_category is now plain text (a slug), validated
+-- against categories(platform='youtube', slug=p_category), and
+-- written directly into videos.category.
+-- ---------------------------------------------------------
+drop function if exists public.submit_video(text, text, text, text, uuid, bigint, bigint, bigint, timestamptz);
+drop function if exists public.submit_video(text, text, text, text, text, bigint, bigint, bigint, timestamptz);
+
+create function public.submit_video(
+  p_youtube_id text,
+  p_title text,
+  p_thumbnail_url text,
+  p_channel_name text,
+  p_category text,
+  p_view_count bigint default null,
+  p_like_count bigint default null,
+  p_dislike_count bigint default null,
+  p_published_at timestamptz default null
+)
+returns public.submissions
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_video_id uuid;
+  v_was_removed boolean;
+  v_submission public.submissions;
+begin
+  if not exists (
+    select 1 from public.categories where platform = 'youtube' and slug = p_category
+  ) then
+    raise exception 'Invalid category for YouTube: %', p_category;
+  end if;
+
+  select id, is_removed into v_video_id, v_was_removed from public.videos where youtube_id = p_youtube_id;
+
+  if v_video_id is not null and v_was_removed then
+    delete from public.submissions where video_id = v_video_id;
+    delete from public.votes where video_id = v_video_id;
+    delete from public.video_creator_awards where video_id = v_video_id;
+    update public.videos
+      set is_removed = false, title = p_title, thumbnail_url = p_thumbnail_url,
+          channel_name = p_channel_name, category = p_category,
+          view_count = p_view_count, like_count = p_like_count,
+          dislike_count = p_dislike_count, published_at = p_published_at
+      where id = v_video_id;
+  elsif v_video_id is null then
+    insert into public.videos (youtube_id, title, thumbnail_url, channel_name, category, view_count, like_count, dislike_count, published_at)
+    values (p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category, p_view_count, p_like_count, p_dislike_count, p_published_at)
+    returning id into v_video_id;
+  else
+    update public.videos
+      set title = coalesce(title, p_title), thumbnail_url = coalesce(thumbnail_url, p_thumbnail_url),
+          channel_name = coalesce(channel_name, p_channel_name), view_count = coalesce(p_view_count, view_count),
+          like_count = coalesce(p_like_count, like_count), dislike_count = coalesce(p_dislike_count, dislike_count),
+          published_at = coalesce(published_at, p_published_at)
+      where id = v_video_id;
+  end if;
+
+  insert into public.submissions (video_id, user_id) values (v_video_id, auth.uid()) returning * into v_submission;
+  return v_submission;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
+-- submit_twitch_clip(): same treatment.
+-- ---------------------------------------------------------
+drop function if exists public.submit_twitch_clip(text, text, text, text, uuid, bigint, timestamptz);
+drop function if exists public.submit_twitch_clip(text, text, text, text, text, bigint, timestamptz);
+
+create function public.submit_twitch_clip(
+  p_slug text,
+  p_title text,
+  p_thumbnail_url text,
+  p_broadcaster_name text,
+  p_category text,
+  p_view_count bigint default null,
+  p_published_at timestamptz default null
+)
+returns public.submissions
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_video_id uuid;
+  v_was_removed boolean;
+  v_submission public.submissions;
+begin
+  if not exists (
+    select 1 from public.categories where platform = 'twitch' and slug = p_category
+  ) then
+    raise exception 'Invalid category for Twitch: %', p_category;
+  end if;
+
+  select id, is_removed into v_video_id, v_was_removed from public.videos where twitch_clip_slug = p_slug;
+
+  if v_video_id is not null and v_was_removed then
+    delete from public.submissions where video_id = v_video_id;
+    delete from public.votes where video_id = v_video_id;
+    delete from public.video_creator_awards where video_id = v_video_id;
+    update public.videos
+      set is_removed = false, title = p_title, thumbnail_url = p_thumbnail_url,
+          broadcaster_name = p_broadcaster_name, category = p_category,
+          view_count = p_view_count, published_at = p_published_at
+      where id = v_video_id;
+  elsif v_video_id is null then
+    insert into public.videos (source, twitch_clip_slug, title, thumbnail_url, broadcaster_name, category, view_count, published_at)
+    values ('twitch', p_slug, p_title, p_thumbnail_url, p_broadcaster_name, p_category, p_view_count, p_published_at)
+    returning id into v_video_id;
+  else
+    update public.videos
+      set title = coalesce(title, p_title), thumbnail_url = coalesce(thumbnail_url, p_thumbnail_url),
+          broadcaster_name = coalesce(broadcaster_name, p_broadcaster_name), view_count = coalesce(p_view_count, view_count),
+          published_at = coalesce(published_at, p_published_at)
+      where id = v_video_id;
+  end if;
+
+  insert into public.submissions (video_id, user_id) values (v_video_id, auth.uid()) returning * into v_submission;
+  return v_submission;
+end;
+$$;
+
+
+-- ---------------------------------------------------------
+-- videos_ranked_by_category(): filters by (source, category) plain
+-- text -- this is the actual fix for videos not appearing on category
+-- pages. Joins categories on (platform, slug) just for the display
+-- name; the WHERE clause never touches an id.
+-- ---------------------------------------------------------
+drop function if exists public.videos_ranked_by_category(uuid, timestamptz);
+drop function if exists public.videos_ranked_by_category(public.video_source, text, timestamptz);
+
+create function public.videos_ranked_by_category(
+  p_source public.video_source,
+  p_category text,
+  p_since timestamptz default null
+)
+returns table (
+  id uuid,
+  source public.video_source,
+  youtube_id text,
+  twitch_clip_slug text,
+  title text,
+  thumbnail_url text,
+  channel_name text,
+  broadcaster_name text,
+  category text,
+  category_id uuid,
+  category_name text,
+  view_count bigint,
+  like_count bigint,
+  dislike_count bigint,
+  published_at timestamptz,
+  submission_count integer,
+  vote_count integer,
+  is_removed boolean,
+  created_at timestamptz,
+  window_submission_count bigint
+)
+language sql
+stable
+as $$
+  select
+    v.id, v.source, v.youtube_id, v.twitch_clip_slug,
+    v.title, v.thumbnail_url, v.channel_name, v.broadcaster_name,
+    v.category, v.category_id, c.name as category_name,
+    v.view_count, v.like_count, v.dislike_count, v.published_at,
+    v.submission_count, v.vote_count, v.is_removed, v.created_at,
+    count(s.id) filter (
+      where p_since is null or s.created_at >= p_since
+    ) as window_submission_count
+  from public.videos v
+  left join public.categories c on c.platform::text = v.source::text and c.slug = v.category
+  left join public.submissions s on s.video_id = v.id
+  where v.source = p_source
+    and v.category = p_category
+    and v.is_removed = false
+  group by v.id, c.name
+  having p_since is null
+      or count(s.id) filter (where s.created_at >= p_since) > 0
+  order by window_submission_count desc, v.submission_count desc
+  limit 50;
+$$;
+
+
+-- ---------------------------------------------------------
+-- remove_category(): referenced by app/actions/categories.ts but
+-- didn't exist yet. Requirement: removing a category must not delete
+-- videos -- clears category (text slug) and category_id off every
+-- video that referenced this one (matched by source+slug, the same
+-- pair used everywhere else), moving them to Uncategorized, then
+-- deletes the category row itself. Independently re-checks the
+-- caller is a creator, same pattern as every other privileged write.
+-- ---------------------------------------------------------
+create or replace function public.remove_category(p_category_id uuid)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_caller_role public.user_role;
+  v_platform text;
+  v_slug text;
+begin
+  select role into v_caller_role from public.profiles where id = auth.uid();
+  if v_caller_role is distinct from 'creator' then
+    raise exception 'Only creators can remove categories';
+  end if;
+
+  select platform, slug into v_platform, v_slug from public.categories where id = p_category_id;
+  if v_slug is null then
+    raise exception 'Category not found';
+  end if;
+
+  update public.videos
+    set category = null, category_id = null
+    where source::text = v_platform and category = v_slug;
+
+  delete from public.categories where id = p_category_id;
+end;
+$$;

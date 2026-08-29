@@ -6,11 +6,9 @@ import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
-import { categoryFromSlug } from "@/lib/categories";
-import { YOUTUBE_SELECTABLE_CATEGORIES } from "@/lib/types/database.types";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
-import type { Video } from "@/lib/types/database.types";
+import { rankVideosByWindow } from "@/lib/rank-videos";
 
 export default async function YoutubeCategoryPage({
   params,
@@ -20,48 +18,51 @@ export default async function YoutubeCategoryPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { slug } = await params;
-  // Resolved against YOUTUBE_SELECTABLE_CATEGORIES specifically — a
-  // slug that's only valid on Twitch (there currently isn't one, but
-  // the two lists are independent) or isn't a real category at all
-  // 404s here, rather than silently showing an empty/wrong list.
-  const category = categoryFromSlug(slug, YOUTUBE_SELECTABLE_CATEGORIES);
+  const supabase = await createClient();
+
+  // Live lookup by (platform, slug) — not a hardcoded list. Used here
+  // only to confirm the slug is real and to get its display name; the
+  // actual video filter below uses (source, category) directly, not
+  // this row's id.
+  const { data: category } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("platform", "youtube")
+    .eq("slug", slug)
+    .single();
+
   if (!category) notFound();
 
   const range = parseTimeRange((await searchParams).range);
   const since = timeRangeSince(range);
 
-  const [profile, supabase] = [await getCurrentProfile(), await createClient()];
+  const profile = await getCurrentProfile();
 
-  // p_source: "youtube" is what keeps this page from also showing
-  // Twitch clips in the same category (e.g. LSF) — see schema.sql.
-  const { data: rankedRows } = await supabase.rpc("videos_ranked_by_category", {
-    p_category: category,
-    p_source: "youtube",
-    p_since: since,
-  });
+  // Requirement 2/5: same query shape as /videos — plain
+  // .from("videos").select("*") with source+category filters added —
+  // instead of a custom RPC.
+  const { data: baseVideos, error: videosError } = await supabase
+    .from("videos")
+    .select("*")
+    .eq("source", "youtube")
+    .eq("category", slug)
+    .eq("is_removed", false)
+    .order("submission_count", { ascending: false })
+    .limit(50);
 
-  const videos: Video[] | undefined = rankedRows?.map((row) => ({
-    id: row.id,
-    source: row.source,
-    youtube_id: row.youtube_id,
-    twitch_clip_slug: row.twitch_clip_slug,
-    title: row.title,
-    thumbnail_url: row.thumbnail_url,
-    channel_name: row.channel_name,
-    broadcaster_name: row.broadcaster_name,
-    category: row.category,
-    view_count: row.view_count,
-    like_count: row.like_count,
-    dislike_count: row.dislike_count,
-    published_at: row.published_at,
-    submission_count: row.window_submission_count,
-    vote_count: row.vote_count,
-    is_removed: row.is_removed,
-    created_at: row.created_at,
-  }));
+  if (videosError) {
+    console.error("YoutubeCategoryPage: videos query failed", {
+      slug,
+      code: videosError.code,
+      message: videosError.message,
+    });
+  }
+
+  // Requirement 3: windowed ranking computed in JS — see lib/rank-videos.ts.
+  const videos = await rankVideosByWindow(supabase, baseVideos ?? [], since);
 
   let upvotedVideoIds = new Set<string>();
-  if (profile && videos && videos.length > 0) {
+  if (profile && videos.length > 0) {
     const { data: myVotes } = await supabase
       .from("votes")
       .select("video_id")
@@ -85,18 +86,31 @@ export default async function YoutubeCategoryPage({
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            {category}
+            {category.name}
           </h1>
           <TimeRangeFilter basePath="/youtube" categorySlug={slug} active={range} />
         </div>
+
+        {/* Requirement: show the real filter being used. */}
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          filter: source=youtube · category={slug}
+        </p>
+
+        {/* Requirement 4: show the real error, not a silent/blank page. */}
+        {videosError && (
+          <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Could not load videos: {videosError.message}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
         <VideoPlayerProvider>
-          {videos?.map((video) => (
+          {videos.map((video) => (
             <VideoCard
               key={video.id}
               video={video}
+              categoryName={category.name}
               action={
                 <UpvoteButton
                   videoId={video.id}
@@ -108,10 +122,10 @@ export default async function YoutubeCategoryPage({
             />
           ))}
         </VideoPlayerProvider>
-        {(!videos || videos.length === 0) && (
+        {videos.length === 0 && !videosError && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No videos submitted in {category}{" "}
+              No videos submitted in {category.name}{" "}
               {range === "all" ? "yet." : `in the ${TIME_RANGE_WINDOW_TEXT[range]}.`}
             </CardContent>
           </Card>

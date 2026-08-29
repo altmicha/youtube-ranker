@@ -6,11 +6,9 @@ import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
 import { Card, CardContent } from "@/components/ui/card";
-import { categoryFromSlug } from "@/lib/categories";
-import { TWITCH_SELECTABLE_CATEGORIES } from "@/lib/types/database.types";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
-import type { Video } from "@/lib/types/database.types";
+import { rankVideosByWindow } from "@/lib/rank-videos";
 
 export default async function TwitchCategoryPage({
   params,
@@ -20,48 +18,54 @@ export default async function TwitchCategoryPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const { slug } = await params;
-  // Resolved against TWITCH_SELECTABLE_CATEGORIES specifically (just
-  // LSF and Funny) — e.g. /twitch/gaming 404s even though "Gaming" is
-  // a real category, since it's not one Twitch offers.
-  const category = categoryFromSlug(slug, TWITCH_SELECTABLE_CATEGORIES);
+  const supabase = await createClient();
+
+  // Live lookup by (platform, slug) — used only to confirm the slug
+  // is real and to get its display name; the actual video filter
+  // below uses (source, category) directly, not this row's id.
+  const { data: category } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("platform", "twitch")
+    .eq("slug", slug)
+    .single();
+
   if (!category) notFound();
 
   const range = parseTimeRange((await searchParams).range);
   const since = timeRangeSince(range);
 
-  const [profile, supabase] = [await getCurrentProfile(), await createClient()];
+  const profile = await getCurrentProfile();
 
-  // p_source: "twitch" is the fix for the reported bug — without it,
-  // this page would also show YouTube's LSF videos mixed in. See
-  // schema.sql.
-  const { data: rankedRows } = await supabase.rpc("videos_ranked_by_category", {
-    p_category: category,
-    p_source: "twitch",
-    p_since: since,
-  });
+  // Requirement 2/5: the exact same query shape as /videos — plain
+  // .from("videos").select("*"), just with source+category filters
+  // added — instead of a custom RPC. That RPC broke three separate
+  // times against this database (enum/text mismatches, stale
+  // signatures); this way there's no custom SQL function left to
+  // drift out of sync with the schema.
+  const { data: baseVideos, error: videosError } = await supabase
+    .from("videos")
+    .select("*")
+    .eq("source", "twitch")
+    .eq("category", slug)
+    .eq("is_removed", false)
+    .order("submission_count", { ascending: false })
+    .limit(50);
 
-  const videos: Video[] | undefined = rankedRows?.map((row) => ({
-    id: row.id,
-    source: row.source,
-    youtube_id: row.youtube_id,
-    twitch_clip_slug: row.twitch_clip_slug,
-    title: row.title,
-    thumbnail_url: row.thumbnail_url,
-    channel_name: row.channel_name,
-    broadcaster_name: row.broadcaster_name,
-    category: row.category,
-    view_count: row.view_count,
-    like_count: row.like_count,
-    dislike_count: row.dislike_count,
-    published_at: row.published_at,
-    submission_count: row.window_submission_count,
-    vote_count: row.vote_count,
-    is_removed: row.is_removed,
-    created_at: row.created_at,
-  }));
+  if (videosError) {
+    console.error("TwitchCategoryPage: videos query failed", {
+      slug,
+      code: videosError.code,
+      message: videosError.message,
+    });
+  }
+
+  // Requirement 3: windowed ranking (daily/weekly/monthly) computed
+  // in JS from a plain submissions query — see lib/rank-videos.ts.
+  const videos = await rankVideosByWindow(supabase, baseVideos ?? [], since);
 
   let upvotedVideoIds = new Set<string>();
-  if (profile && videos && videos.length > 0) {
+  if (profile && videos.length > 0) {
     const { data: myVotes } = await supabase
       .from("votes")
       .select("video_id")
@@ -85,18 +89,31 @@ export default async function TwitchCategoryPage({
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            {category}
+            {category.name}
           </h1>
           <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} />
         </div>
+
+        {/* Requirement: show the real filter being used. */}
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          filter: source=twitch · category={slug}
+        </p>
+
+        {/* Requirement 4: show the real error, not a silent/blank page. */}
+        {videosError && (
+          <p className="mt-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Could not load videos: {videosError.message}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
         <VideoPlayerProvider>
-          {videos?.map((video) => (
+          {videos.map((video) => (
             <VideoCard
               key={video.id}
               video={video}
+              categoryName={category.name}
               action={
                 <UpvoteButton
                   videoId={video.id}
@@ -108,10 +125,10 @@ export default async function TwitchCategoryPage({
             />
           ))}
         </VideoPlayerProvider>
-        {(!videos || videos.length === 0) && (
+        {videos.length === 0 && !videosError && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No clips submitted in {category}{" "}
+              No clips submitted in {category.name}{" "}
               {range === "all" ? "yet." : `in the ${TIME_RANGE_WINDOW_TEXT[range]}.`}
             </CardContent>
           </Card>

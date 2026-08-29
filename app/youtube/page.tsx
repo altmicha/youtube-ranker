@@ -1,14 +1,22 @@
 import Link from "next/link";
 import { getCurrentProfile } from "@/lib/auth/roles";
+import { createClient } from "@/lib/supabase/server";
 import { SubmitVideoForm } from "@/components/submit-video-form";
 import { CategoryGrid } from "@/components/category-grid";
-import { YOUTUBE_SELECTABLE_CATEGORIES } from "@/lib/types/database.types";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 export default async function YoutubePage() {
-  const profile = await getCurrentProfile();
+  const [profile, supabase] = [await getCurrentProfile(), await createClient()];
+
+  // Live category list — never hardcoded. Ordered by name for a
+  // stable, predictable grid/dropdown order.
+  const { data: categories } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("platform", "youtube")
+    .order("name");
 
   return (
     <div className="flex flex-col gap-6">
@@ -29,10 +37,10 @@ export default async function YoutubePage() {
         </Link>
       </div>
 
-      <CategoryGrid categories={YOUTUBE_SELECTABLE_CATEGORIES} basePath="/youtube" />
+      <CategoryGrid categories={categories ?? []} basePath="/youtube" />
 
       {profile ? (
-        <SubmitVideoForm platform="youtube" categories={YOUTUBE_SELECTABLE_CATEGORIES} />
+        <SubmitVideoForm platform="youtube" categories={categories ?? []} />
       ) : (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center gap-2 py-6 text-center">

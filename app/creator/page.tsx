@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { AwardPointsButton } from "@/components/award-points-button";
 import { RemoveVideoButton } from "@/components/remove-video-button";
 import { VideoCard } from "@/components/video-card";
+import { CategoryManager } from "@/components/creator/category-manager";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 
 export default async function CreatorDashboardPage() {
@@ -31,6 +33,22 @@ export default async function CreatorDashboardPage() {
     alreadyAwardedVideoIds = new Set(myAwards?.map((a) => a.video_id));
   }
 
+  const [{ data: youtubeCategories }, { data: twitchCategories }] = await Promise.all([
+    supabase.from("categories").select("*").eq("platform", "youtube").order("name"),
+    supabase.from("categories").select("*").eq("platform", "twitch").order("name"),
+  ]);
+
+  // Reuse the two category lists already fetched above to build a
+  // (source, category slug) -> name lookup — the same pair
+  // submit/category pages use. category_id is vestigial/unreliable
+  // now, so it's not used for this.
+  const categoryNames = new Map(
+    [...(youtubeCategories ?? []), ...(twitchCategories ?? [])].map((c) => [
+      `${c.platform}::${c.slug}`,
+      c.name,
+    ])
+  );
+
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -38,9 +56,16 @@ export default async function CreatorDashboardPage() {
           Creator dashboard
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Award points to the people who submitted a video.
+          Award points to the people who submitted a video, and manage categories.
         </p>
       </div>
+
+      <div className="grid gap-6 sm:grid-cols-2">
+        <CategoryManager platform="youtube" initialCategories={youtubeCategories ?? []} />
+        <CategoryManager platform="twitch" initialCategories={twitchCategories ?? []} />
+      </div>
+
+      <Separator />
 
       <div className="flex flex-col gap-3">
         <VideoPlayerProvider>
@@ -48,6 +73,7 @@ export default async function CreatorDashboardPage() {
             <VideoCard
               key={video.id}
               video={video}
+              categoryName={video.category ? categoryNames.get(`${video.source}::${video.category}`) ?? null : null}
               action={
                 <div className="flex flex-col items-end gap-2">
                   <AwardPointsButton

@@ -11,9 +11,17 @@ import { TwitchEmbed } from "@/components/twitch-embed";
 
 export function VideoCard({
   video,
+  categoryName,
   action,
 }: {
   video: Video;
+  // Passed explicitly rather than read off `video` — the ranked-list
+  // RPC returns a joined category_name, but plain `.select("*")`
+  // queries (e.g. /videos, /creator) don't include it automatically,
+  // so each caller supplies whatever it already knows/fetched. Null
+  // (or omitted) means the video has no category (was removed, or
+  // never categorized) — shown as "Uncategorized".
+  categoryName?: string | null;
   action: React.ReactNode;
 }) {
   const { playingId, toggle } = useVideoPlayer();
@@ -89,7 +97,7 @@ export function VideoCard({
                 </Badge>
               )}
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                {video.category}
+                {categoryName ?? "Uncategorized"}
               </Badge>
               <Badge variant="muted" className="px-1.5 py-0 font-mono text-[10px]">
                 {video.submission_count}{" "}

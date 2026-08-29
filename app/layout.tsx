@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeInit } from "@/components/theme-init";
 import { SessionGuard } from "@/components/session-guard";
 import { cn } from "@/lib/utils";
 
@@ -14,25 +15,6 @@ export const metadata: Metadata = {
   title: "VideoRank",
   description: "Submit, rank, and get rewarded for great YouTube videos.",
 };
-
-// Runs before React hydrates, inline and synchronous, so <html> gets
-// the "dark" class (or not) before the first paint — this is what
-// prevents a flash of the wrong theme (requirement 6). It checks
-// localStorage first (the user's remembered choice — requirement 3),
-// and falls back to the OS-level preference on a first visit
-// (requirement 4). Wrapped in try/catch since localStorage can throw
-// in some privacy modes; falling through to system preference is a
-// safe default in that case.
-const themeInitScript = `
-(function () {
-  try {
-    var stored = localStorage.getItem("theme");
-    var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    var isDark = stored ? stored === "dark" : prefersDark;
-    document.documentElement.classList.toggle("dark", isDark);
-  } catch (e) {}
-})();
-`;
 
 export default async function RootLayout({
   children,
@@ -43,10 +25,12 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-      </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
+        {/* No script tags anywhere in this file — ThemeInit sets the
+            dark/light class client-side on mount (see
+            components/theme-init.tsx for the flash trade-off this
+            implies). */}
+        <ThemeInit />
         {/* Requirement 4: one-time client-side fallback. Renders
             nothing — runs a session check after the page has already
             painted and, if broken, clears the local session and
