@@ -2,6 +2,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { Video } from "@/lib/types/database.types";
 import { formatCount } from "@/lib/format";
+import { formatRelativeTime } from "@/lib/relative-time";
 
 export function VideoCard({
   video,
@@ -10,14 +11,19 @@ export function VideoCard({
   video: Video;
   action: React.ReactNode;
 }) {
-  // Requirement 4: only include a stat if the API actually returned
-  // it — dislikeCount is almost always null (YouTube hid it publicly
-  // in Dec 2021), and view/like can be null if the stats fetch failed
-  // at submission time. Never show a fabricated 0.
+  // Requirement 4 (view/like/dislike): only include a stat if the API
+  // actually returned it — dislikeCount is almost always null
+  // (YouTube hid it publicly in Dec 2021), and view/like can be null
+  // if the stats fetch failed at submission time. Never show a
+  // fabricated 0. Upload age is appended to the same line (requirement
+  // 4 of this feature: "near the views/likes line") and is likewise
+  // only shown once actually fetched — old videos stay blank until
+  // resubmitted (requirement 6).
   const stats = [
     video.view_count != null && `${formatCount(video.view_count)} views`,
     video.like_count != null && `${formatCount(video.like_count)} likes`,
     video.dislike_count != null && `${formatCount(video.dislike_count)} dislikes`,
+    video.published_at != null && formatRelativeTime(video.published_at),
   ].filter(Boolean) as string[];
 
   return (

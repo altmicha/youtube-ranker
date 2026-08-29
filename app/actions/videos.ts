@@ -39,14 +39,42 @@ export async function submitVideo(
     return { error: "That doesn't look like a valid YouTube video URL." };
   }
 
+  const supabase = await createClient();
+
+  // Rate limit: normal users can submit at most 3 videos per hour,
+  // per category (3 Funny + 3 Gaming in the same hour is fine; a 4th
+  // Funny isn't). Creators are exempt (same profile.role check used
+  // everywhere else). Enforced here, in the server action — this
+  // can't be bypassed by disabling/hiding the submit button, since
+  // the check runs regardless of what the client sends.
+  //
+  // submissions doesn't store category itself (a video's category is
+  // fixed on the videos row, not per-submission), so this counts via
+  // an inner-joined embed — videos!inner(category) — filtering on the
+  // embedded video's category through PostgREST's dot-notation filter.
+  if (profile.role !== "creator") {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count, error: countError } = await supabase
+      .from("submissions")
+      .select("id, videos!inner(category)", { count: "exact", head: true })
+      .eq("user_id", profile.id)
+      .eq("videos.category", category)
+      .gte("created_at", oneHourAgo);
+
+    if (countError) {
+      return { error: "Something went wrong. Try again." };
+    }
+    if ((count ?? 0) >= 3) {
+      return { error: "You can only submit 3 videos per hour in this category." };
+    }
+  }
+
   // Fetch title/thumbnail/channel/stats from the YouTube Data API v3.
   // fetchYoutubeMetadata() never throws — it returns null on any
   // failure (missing key, network error, private/deleted video) — so
   // a metadata/stats failure never blocks the submission itself; we
   // just fall through with nulls (requirement 6).
   const metadata = await fetchYoutubeMetadata(videoId);
-
-  const supabase = await createClient();
 
   // submit_video() atomically creates-or-updates the video row and
   // inserts a submissions row for the current user. The DB's
@@ -64,6 +92,7 @@ export async function submitVideo(
     p_view_count: metadata?.viewCount ?? null,
     p_like_count: metadata?.likeCount ?? null,
     p_dislike_count: metadata?.dislikeCount ?? null,
+    p_published_at: metadata?.publishedAt ?? null,
   });
 
   if (error) {

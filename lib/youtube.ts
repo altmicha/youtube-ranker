@@ -48,6 +48,7 @@ export interface YoutubeMetadata {
   // 2021 — almost every video will have this come back as null.
   // Requirement 4: only ever set from a real API value, never faked.
   dislikeCount: number | null;
+  publishedAt: string | null;
 }
 
 /**
@@ -118,6 +119,9 @@ export async function fetchYoutubeMetadata(
       viewCount: parseCount(stats.viewCount),
       likeCount: parseCount(stats.likeCount),
       dislikeCount: parseCount(stats.dislikeCount),
+      // snippet.publishedAt is an ISO 8601 string already
+      // (e.g. "2015-03-14T10:00:00Z") — stored as-is.
+      publishedAt: typeof snippet.publishedAt === "string" ? snippet.publishedAt : null,
     };
   } catch (err) {
     console.error("YouTube metadata fetch failed:", err);

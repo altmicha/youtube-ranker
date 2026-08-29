@@ -95,6 +95,7 @@ create table public.videos (
   like_count        bigint,    -- same
   dislike_count     bigint,    -- almost always null — YouTube hid this publicly in Dec 2021;
                                 -- only ever set from a real API value, never faked
+  published_at      timestamptz, -- YouTube's snippet.publishedAt; null until fetched (or if the fetch failed)
   submission_count  integer not null default 0, -- denormalized, kept in sync by trigger
   vote_count        integer not null default 0, -- denormalized, kept in sync by trigger
   is_removed        boolean not null default false, -- soft-delete flag; see remove_video()
@@ -455,11 +456,13 @@ $$;
 -- 6. Helper: submit a video (creates the video row if new, then the
 --    submission) as one atomic call from the client.
 -- ---------------------------------------------------------
--- Adding p_view_count/p_like_count/p_dislike_count changes this
--- function's argument list, so Postgres would otherwise keep the old
--- 5-argument version around as a separate overload (ambiguous for
--- PostgREST) instead of replacing it — drop it explicitly first.
+-- Adding p_view_count/p_like_count/p_dislike_count/p_published_at
+-- changes this function's argument list each time, so Postgres would
+-- otherwise keep the old version around as a separate overload
+-- (ambiguous for PostgREST) instead of replacing it — drop the prior
+-- signature explicitly first.
 drop function if exists public.submit_video(text, text, text, text, public.video_category);
+drop function if exists public.submit_video(text, text, text, text, public.video_category, bigint, bigint, bigint);
 
 create function public.submit_video(
   p_youtube_id text,
@@ -469,7 +472,8 @@ create function public.submit_video(
   p_category public.video_category,
   p_view_count bigint default null,
   p_like_count bigint default null,
-  p_dislike_count bigint default null
+  p_dislike_count bigint default null,
+  p_published_at timestamptz default null
 )
 returns public.submissions
 language plpgsql
@@ -477,35 +481,76 @@ security definer set search_path = public
 as $$
 declare
   v_video_id uuid;
+  v_was_removed boolean;
   v_submission public.submissions;
 begin
-  -- On conflict (video already submitted by someone else before),
-  -- backfill any metadata columns that are still null rather than
-  -- only ever touching title — lets an older row saved before the
-  -- YouTube API integration existed get filled in by a later fetch.
-  -- category is intentionally NOT overwritten on conflict: it's a
-  -- per-video attribute, and the first submitter's choice sticks.
-  -- view/like/dislike counts, by contrast, ALWAYS take the freshest
-  -- successfully-fetched value (coalesce falls back to the existing
-  -- value only when this submission's fetch came back null) — stats
-  -- change over time, so newer numbers are always preferred, unlike
-  -- title/thumbnail/channel which just need filling in once.
-  insert into public.videos (
-    youtube_id, title, thumbnail_url, channel_name, category,
-    view_count, like_count, dislike_count
-  )
-  values (
-    p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category,
-    p_view_count, p_like_count, p_dislike_count
-  )
-  on conflict (youtube_id) do update
-    set title = coalesce(public.videos.title, excluded.title),
-        thumbnail_url = coalesce(public.videos.thumbnail_url, excluded.thumbnail_url),
-        channel_name = coalesce(public.videos.channel_name, excluded.channel_name),
-        view_count = coalesce(excluded.view_count, public.videos.view_count),
-        like_count = coalesce(excluded.like_count, public.videos.like_count),
-        dislike_count = coalesce(excluded.dislike_count, public.videos.dislike_count)
-  returning id into v_video_id;
+  select id, is_removed into v_video_id, v_was_removed
+    from public.videos where youtube_id = p_youtube_id;
+
+  if v_video_id is not null and v_was_removed then
+    -- Reviving a previously-removed listing (a video row can't just
+    -- be re-inserted — youtube_id is unique — so this is the only
+    -- way to let the same YouTube video be submitted again). Wipe
+    -- its old submission/vote/award history so it behaves like a
+    -- brand new listing:
+    --   - deleting submissions cascades to point_awards (FK:
+    --     point_awards.submission_id -> submissions.id on delete
+    --     cascade), clearing old awards tied to this listing
+    --   - video_creator_awards is keyed by video_id, not
+    --     submission_id, so it needs an explicit delete too —
+    --     otherwise its (video_id, creator_id) primary key would
+    --     still "remember" a creator already awarded this video and
+    --     block them from awarding the revived listing
+    --   - submission_count/vote_count are kept in sync by the
+    --     existing per-row triggers as these rows are deleted,
+    --     landing back at 0, then the fresh insert below takes it to 1
+    -- Already-awarded points on a user's profile are NOT clawed back
+    -- — those were real payouts, not part of "the listing"'s state.
+    delete from public.submissions where video_id = v_video_id;
+    delete from public.votes where video_id = v_video_id;
+    delete from public.video_creator_awards where video_id = v_video_id;
+
+    update public.videos
+      set is_removed = false,
+          title = p_title,
+          thumbnail_url = p_thumbnail_url,
+          channel_name = p_channel_name,
+          category = p_category,
+          view_count = p_view_count,
+          like_count = p_like_count,
+          dislike_count = p_dislike_count,
+          published_at = p_published_at
+      where id = v_video_id;
+
+  elsif v_video_id is null then
+    -- Brand new video.
+    insert into public.videos (
+      youtube_id, title, thumbnail_url, channel_name, category,
+      view_count, like_count, dislike_count, published_at
+    )
+    values (
+      p_youtube_id, p_title, p_thumbnail_url, p_channel_name, p_category,
+      p_view_count, p_like_count, p_dislike_count, p_published_at
+    )
+    returning id into v_video_id;
+
+  else
+    -- Existing, still-active (not removed) video: same backfill-only
+    -- behavior as before. category/title/thumbnail/channel are
+    -- per-video and don't get overwritten by a later submitter;
+    -- stats always take the freshest fetch. The submissions insert
+    -- below still enforces "can't submit the same active video
+    -- twice" via unique(video_id, user_id).
+    update public.videos
+      set title = coalesce(title, p_title),
+          thumbnail_url = coalesce(thumbnail_url, p_thumbnail_url),
+          channel_name = coalesce(channel_name, p_channel_name),
+          view_count = coalesce(p_view_count, view_count),
+          like_count = coalesce(p_like_count, like_count),
+          dislike_count = coalesce(p_dislike_count, dislike_count),
+          published_at = coalesce(published_at, p_published_at)
+      where id = v_video_id;
+  end if;
 
   insert into public.submissions (video_id, user_id)
   values (v_video_id, auth.uid())
@@ -530,6 +575,11 @@ $$;
 -- vote_count returned is still the video's all-time vote count
 -- (upvotes aren't windowed — see conversation requirement 6).
 -- ---------------------------------------------------------
+-- Adding published_at to the returned columns changes this
+-- function's return type, which create-or-replace can't do — drop
+-- the prior version first.
+drop function if exists public.videos_ranked_by_category(public.video_category, timestamptz);
+
 create function public.videos_ranked_by_category(
   p_category public.video_category,
   p_since timestamptz default null
@@ -544,6 +594,7 @@ returns table (
   view_count bigint,
   like_count bigint,
   dislike_count bigint,
+  published_at timestamptz,
   submission_count integer,
   vote_count integer,
   is_removed boolean,
@@ -555,7 +606,7 @@ stable
 as $$
   select
     v.id, v.youtube_id, v.title, v.thumbnail_url, v.channel_name, v.category,
-    v.view_count, v.like_count, v.dislike_count,
+    v.view_count, v.like_count, v.dislike_count, v.published_at,
     v.submission_count, v.vote_count, v.is_removed, v.created_at,
     count(s.id) filter (
       where p_since is null or s.created_at >= p_since

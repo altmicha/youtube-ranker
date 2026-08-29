@@ -55,6 +55,7 @@ export default async function CategoryPage({
     view_count: row.view_count,
     like_count: row.like_count,
     dislike_count: row.dislike_count,
+    published_at: row.published_at,
     submission_count: row.window_submission_count,
     vote_count: row.vote_count,
     is_removed: row.is_removed,

@@ -78,6 +78,7 @@ export interface Video {
   view_count: number | null;
   like_count: number | null;
   dislike_count: number | null;
+  published_at: string | null;
   submission_count: number;
   vote_count: number;
   is_removed: boolean;
@@ -242,6 +243,7 @@ export interface Database {
           p_view_count?: number | null;
           p_like_count?: number | null;
           p_dislike_count?: number | null;
+          p_published_at?: string | null;
         };
         Returns: Submission;
       };
