@@ -27,6 +27,13 @@ export interface Category {
   // Object path within the "category-covers" Storage bucket; null
   // means no custom image uploaded — the UI falls back to a gradient.
   image_path: string | null;
+  // Optional link to a streamer (public.streamers.id) this category
+  // belongs to. Nullable — every category created before this existed
+  // has (and can keep) streamer_id = null; nothing currently reads or
+  // writes this field yet (no /streamer/[slug] route, no UI to assign
+  // one) — it's here purely so the type is accurate for whatever
+  // queries/features get built against it next.
+  streamer_id: string | null;
   created_at: string;
 }
 
