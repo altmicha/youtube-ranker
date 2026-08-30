@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AwardPointsButton } from "@/components/award-points-button";
 import { RemoveVideoButton } from "@/components/remove-video-button";
 import { VideoCard } from "@/components/video-card";
-import { CategoryManager } from "@/components/creator/category-manager";
+import { StreamerAndCategorySection } from "@/components/creator/streamer-and-category-section";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
@@ -33,9 +33,16 @@ export default async function CreatorDashboardPage() {
     alreadyAwardedVideoIds = new Set(myAwards?.map((a) => a.video_id));
   }
 
-  const [{ data: youtubeCategories }, { data: twitchCategories }] = await Promise.all([
+  const [
+    { data: youtubeCategories },
+    { data: twitchCategories },
+    { data: youtubeStreamers },
+    { data: twitchStreamers },
+  ] = await Promise.all([
     supabase.from("categories").select("*").eq("platform", "youtube").order("name"),
     supabase.from("categories").select("*").eq("platform", "twitch").order("name"),
+    supabase.from("streamers").select("*").eq("platform", "youtube").order("display_name"),
+    supabase.from("streamers").select("*").eq("platform", "twitch").order("display_name"),
   ]);
 
   // Reuse the two category lists already fetched above to build a
@@ -56,14 +63,16 @@ export default async function CreatorDashboardPage() {
           Creator dashboard
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Award points to the people who submitted a video, and manage categories.
+          Award points to the people who submitted a video, and manage streamers and categories.
         </p>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <CategoryManager platform="youtube" initialCategories={youtubeCategories ?? []} />
-        <CategoryManager platform="twitch" initialCategories={twitchCategories ?? []} />
-      </div>
+      <StreamerAndCategorySection
+        initialYoutubeStreamers={youtubeStreamers ?? []}
+        initialTwitchStreamers={twitchStreamers ?? []}
+        initialYoutubeCategories={youtubeCategories ?? []}
+        initialTwitchCategories={twitchCategories ?? []}
+      />
 
       <Separator />
 

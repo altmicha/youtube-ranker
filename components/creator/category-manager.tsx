@@ -3,55 +3,103 @@
 import { useRef, useState, useTransition } from "react";
 import {
   createCategory,
-  renameCategory,
+  updateCategory,
   removeCategory,
   uploadCategoryImage,
 } from "@/app/actions/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Category, VideoSource } from "@/lib/types/database.types";
+import type { Category, Streamer, VideoSource } from "@/lib/types/database.types";
 import { categoryImageUrl } from "@/lib/category-image";
+
+function StreamerSelect({
+  value,
+  onChange,
+  streamers,
+  disabled,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  streamers: Streamer[];
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      required
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled || streamers.length === 0}
+      aria-label="Streamer"
+      className="h-8 rounded-md border border-input bg-background px-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <option value="" disabled>
+        {streamers.length === 0 ? "No streamers yet" : "Streamer…"}
+      </option>
+      {streamers.map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.display_name}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function CategoryRow({
   category,
   platform,
+  streamers,
+  streamerName,
   onRemoved,
 }: {
   category: Category;
   platform: VideoSource;
+  streamers: Streamer[];
+  // Current streamer's display name, looked up by the parent (which
+  // has the full streamer list) — null if this category predates
+  // streamers, or its streamer was since removed.
+  streamerName: string | null;
   onRemoved: (id: string) => void;
 }) {
   // Local, self-contained display state — updated directly on a
-  // successful action rather than waiting on a full page reload, so
-  // rename/image changes show up immediately.
+  // successful action rather than waiting on a full page reload.
   const [currentName, setCurrentName] = useState(category.name);
+  const [currentStreamerId, setCurrentStreamerId] = useState(category.streamer_id ?? "");
+  const [currentStreamerName, setCurrentStreamerName] = useState(streamerName);
   const [currentImagePath, setCurrentImagePath] = useState(category.image_path);
-  const [isRenaming, setIsRenaming] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [draftName, setDraftName] = useState(category.name);
+  const [draftStreamerId, setDraftStreamerId] = useState(category.streamer_id ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function handleRename() {
+  function handleSave() {
     const trimmed = draftName.trim();
-    if (!trimmed || trimmed === currentName) {
-      setIsRenaming(false);
-      setDraftName(currentName);
+    if (!draftStreamerId) {
+      setIsError(true);
+      setMessage("Choose a streamer for this category.");
+      return;
+    }
+    if (!trimmed) {
+      setIsError(true);
+      setMessage("Enter a category name.");
       return;
     }
     setMessage(null);
     startTransition(async () => {
-      const result = await renameCategory(category.id, trimmed, platform);
+      const result = await updateCategory(category.id, trimmed, draftStreamerId, platform);
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
       } else {
         setCurrentName(trimmed);
+        setCurrentStreamerId(draftStreamerId);
+        setCurrentStreamerName(streamers.find((s) => s.id === draftStreamerId)?.display_name ?? null);
         setIsError(false);
         setMessage(null);
+        setIsEditing(false);
       }
-      setIsRenaming(false);
     });
   }
 
@@ -86,8 +134,6 @@ function CategoryRow({
         setIsError(true);
         setMessage(result.error);
       } else {
-        // Path is always the category's own id (see the action), so
-        // once upload succeeds we know exactly what it is now.
         setCurrentImagePath(category.id);
         setIsError(false);
         setMessage(null);
@@ -101,14 +147,10 @@ function CategoryRow({
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md border p-2">
       {/*
-        Fixed 48x48 thumbnail for this dashboard row — deliberately
-        NOT the same component/sizing as the public category card
+        Fixed 48x48 thumbnail — deliberately NOT the same
+        component/sizing as the public category card
         (components/category-grid.tsx, which stays h-48 w-36 and is
-        untouched by this). Both the wrapper and the <img> itself
-        pin the size via inline style in addition to Tailwind classes
-        — belt-and-suspenders against any external CSS (e.g. a
-        preflight `img { height: auto }` reset) overriding a
-        class-only height/width.
+        untouched by this).
       */}
       <div
         className="block flex-shrink-0 overflow-hidden rounded bg-muted"
@@ -128,24 +170,31 @@ function CategoryRow({
       </div>
 
       <div className="min-w-0 flex-1">
-        {isRenaming ? (
-          <div className="flex gap-1.5">
+        {isEditing ? (
+          <div className="flex flex-wrap gap-1.5">
             <Input
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
-              className="h-8 text-sm"
+              className="h-8 max-w-[160px] text-sm"
               disabled={isPending}
               autoFocus
             />
-            <Button size="sm" onClick={handleRename} disabled={isPending}>
+            <StreamerSelect
+              value={draftStreamerId}
+              onChange={setDraftStreamerId}
+              streamers={streamers}
+              disabled={isPending}
+            />
+            <Button size="sm" onClick={handleSave} disabled={isPending}>
               Save
             </Button>
             <Button
               size="sm"
               variant="outline"
               onClick={() => {
-                setIsRenaming(false);
+                setIsEditing(false);
                 setDraftName(currentName);
+                setDraftStreamerId(currentStreamerId);
               }}
               disabled={isPending}
             >
@@ -153,7 +202,12 @@ function CategoryRow({
             </Button>
           </div>
         ) : (
-          <p className="truncate text-sm font-medium">{currentName}</p>
+          <>
+            <p className="truncate text-sm font-medium">{currentName}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {currentStreamerName ?? "No streamer assigned"}
+            </p>
+          </>
         )}
         {message && (
           <p className={`mt-0.5 text-xs ${isError ? "text-destructive" : "text-emerald-700 dark:text-emerald-400"}`}>
@@ -162,7 +216,7 @@ function CategoryRow({
         )}
       </div>
 
-      {!isRenaming && (
+      {!isEditing && (
         <div className="flex flex-shrink-0 items-center gap-1.5">
           <Button
             type="button"
@@ -170,11 +224,12 @@ function CategoryRow({
             variant="outline"
             onClick={() => {
               setDraftName(currentName);
-              setIsRenaming(true);
+              setDraftStreamerId(currentStreamerId);
+              setIsEditing(true);
             }}
             disabled={isPending}
           >
-            Rename
+            Edit
           </Button>
           <Button
             type="button"
@@ -210,14 +265,21 @@ function CategoryRow({
 export function CategoryManager({
   platform,
   initialCategories,
+  streamers,
 }: {
   platform: VideoSource;
   initialCategories: Category[];
+  // This platform's streamers, fetched by the creator page — used to
+  // populate both the add-category and edit-category streamer pickers.
+  streamers: Streamer[];
 }) {
   const [categories, setCategories] = useState(initialCategories);
   const [newName, setNewName] = useState("");
+  const [newStreamerId, setNewStreamerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const streamerNameById = new Map(streamers.map((s) => [s.id, s.display_name]));
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -227,9 +289,13 @@ export function CategoryManager({
       setError("Enter a category name.");
       return;
     }
+    if (!newStreamerId) {
+      setError("Choose a streamer for this category.");
+      return;
+    }
 
     startTransition(async () => {
-      const result = await createCategory(platform, newName.trim());
+      const result = await createCategory(platform, newName.trim(), newStreamerId);
       if ("error" in result) {
         setError(result.error);
       } else {
@@ -237,6 +303,7 @@ export function CategoryManager({
           [...prev, result.category].sort((a, b) => a.name.localeCompare(b.name))
         );
         setNewName("");
+        setNewStreamerId("");
       }
     });
   }
@@ -253,6 +320,8 @@ export function CategoryManager({
             key={c.id}
             category={c}
             platform={platform}
+            streamers={streamers}
+            streamerName={c.streamer_id ? streamerNameById.get(c.streamer_id) ?? null : null}
             onRemoved={(id) => setCategories((prev) => prev.filter((cat) => cat.id !== id))}
           />
         ))}
@@ -261,7 +330,7 @@ export function CategoryManager({
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="flex gap-2">
+      <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
         <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
@@ -269,10 +338,22 @@ export function CategoryManager({
           disabled={isPending}
           className="h-9 flex-1"
         />
-        <Button type="submit" size="sm" disabled={isPending}>
+        <StreamerSelect
+          value={newStreamerId}
+          onChange={setNewStreamerId}
+          streamers={streamers}
+          disabled={isPending}
+        />
+        <Button type="submit" size="sm" disabled={isPending || streamers.length === 0}>
           {isPending ? "Adding…" : "Add category"}
         </Button>
       </form>
+      {streamers.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Add a {platform === "youtube" ? "YouTube" : "Twitch"} streamer above first — every
+          category needs one.
+        </p>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );

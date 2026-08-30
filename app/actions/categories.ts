@@ -28,7 +28,8 @@ export type CategoryActionResult = { error: string } | { success: true; category
 
 export async function createCategory(
   platform: VideoSource,
-  name: string
+  name: string,
+  streamerId: string
 ): Promise<CategoryActionResult> {
   const check = await requireCreatorProfile();
   if ("error" in check) return check;
@@ -43,10 +44,29 @@ export async function createCategory(
     return { error: "That name doesn't produce a valid URL — try something with letters or numbers." };
   }
 
+  // Requirement: adding a category requires picking a streamer.
+  if (!streamerId) {
+    return { error: "Choose a streamer for this category." };
+  }
+
   const supabase = await createClient();
+
+  // Confirm the streamer is real and actually belongs to this
+  // platform (a YouTube category shouldn't end up pointing at a
+  // Twitch streamer) before writing anything.
+  const { data: streamer, error: streamerError } = await supabase
+    .from("streamers")
+    .select("id, platform")
+    .eq("id", streamerId)
+    .single();
+
+  if (streamerError || !streamer || streamer.platform !== platform) {
+    return { error: "Choose a valid streamer for this platform." };
+  }
+
   const { data, error } = await supabase
     .from("categories")
-    .insert({ platform, name: trimmed, slug })
+    .insert({ platform, name: trimmed, slug, streamer_id: streamerId })
     .select()
     .single();
 
@@ -57,6 +77,7 @@ export async function createCategory(
       platform,
       name: trimmed,
       slug,
+      streamerId,
       code: error.code,
       message: error.message,
       details: error.details,
@@ -85,9 +106,10 @@ export async function createCategory(
 
 export type SimpleActionResult = { error: string } | { success: true };
 
-export async function renameCategory(
+export async function updateCategory(
   categoryId: string,
   newName: string,
+  streamerId: string,
   platform: VideoSource
 ): Promise<SimpleActionResult> {
   const check = await requireCreatorProfile();
@@ -98,20 +120,39 @@ export async function renameCategory(
     return { error: "Enter a category name." };
   }
 
+  // Requirement: editing a category requires picking a streamer too —
+  // including for older categories that predate this and currently
+  // have no streamer assigned.
+  if (!streamerId) {
+    return { error: "Choose a streamer for this category." };
+  }
+
   const supabase = await createClient();
+
+  const { data: streamer, error: streamerError } = await supabase
+    .from("streamers")
+    .select("id, platform")
+    .eq("id", streamerId)
+    .single();
+
+  if (streamerError || !streamer || streamer.platform !== platform) {
+    return { error: "Choose a valid streamer for this platform." };
+  }
+
   // Slug intentionally not touched — renaming keeps existing
   // /youtube/<slug> or /twitch/<slug> links working, and videos are
   // linked to the category by that same slug (see schema.sql), so
   // they're unaffected by a rename either way.
   const { error } = await supabase
     .from("categories")
-    .update({ name: trimmed })
+    .update({ name: trimmed, streamer_id: streamerId })
     .eq("id", categoryId);
 
   if (error) {
-    console.error("renameCategory: update failed", {
+    console.error("updateCategory: update failed", {
       categoryId,
       newName: trimmed,
+      streamerId,
       code: error.code,
       message: error.message,
     });
@@ -121,7 +162,7 @@ export async function renameCategory(
           "Permission denied by the database (row-level security). Confirm this account's role is set to 'creator' in the profiles table.",
       };
     }
-    return { error: `Could not rename category: ${error.message}` };
+    return { error: `Could not update category: ${error.message}` };
   }
 
   revalidatePlatform(platform);

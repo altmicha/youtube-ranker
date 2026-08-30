@@ -3,18 +3,38 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Streamer } from "@/lib/types/database.types";
+import { streamerCoverUrl } from "@/lib/streamer-image";
 
 // Locally extends the shared Streamer type (from
-// lib/types/database.types.ts, not modified here) with two fields
-// this page needs that aren't declared there yet: is_live and a
-// cover image. Kept local rather than editing the shared file, per
-// "change only app/page.tsx" — select("*") below is resilient to
-// either column not actually existing under these names (they'd just
-// come back undefined, and the card falls back accordingly).
+// lib/types/database.types.ts, not modified here) with one field
+// this page needs that isn't declared there yet: is_live. Kept local
+// rather than editing the shared file, per "change only app/page.tsx"
+// — select("*") below is resilient to it not actually existing under
+// this name (it'd just come back undefined, and the live badge
+// simply never shows).
 type DirectoryStreamer = Streamer & {
   is_live?: boolean | null;
-  cover_url?: string | null;
 };
+
+// The creator's image upload (app/actions/streamers.ts,
+// uploadStreamerCoverImage) always writes a bare Storage object path
+// into cover_path — never a full URL — so that's checked first and
+// always run through streamerCoverUrl() to become a usable <img> src.
+// avatar_url isn't written by any upload flow in this app today, but
+// is checked as a fallback in case it's ever set directly: used as-is
+// if it's already a full URL, otherwise also treated as a bare
+// Storage path.
+function resolveStreamerImage(streamer: DirectoryStreamer): string | null {
+  if (streamer.cover_path) {
+    return streamerCoverUrl(streamer.cover_path);
+  }
+  if (streamer.avatar_url) {
+    return streamer.avatar_url.startsWith("http")
+      ? streamer.avatar_url
+      : streamerCoverUrl(streamer.avatar_url);
+  }
+  return null;
+}
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -46,7 +66,7 @@ export default async function HomePage() {
       ) : (
         <div className="flex flex-wrap gap-3">
           {list.map((streamer) => {
-            const coverUrl = streamer.cover_url ?? streamer.avatar_url;
+            const coverUrl = resolveStreamerImage(streamer);
 
             return (
               <Link

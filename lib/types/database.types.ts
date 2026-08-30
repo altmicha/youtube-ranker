@@ -34,6 +34,11 @@ export interface Streamer {
   display_name: string;
   platform: VideoSource;
   avatar_url: string | null;
+  bio: string | null;
+  // Object path within the "streamer-covers" Storage bucket — same
+  // pattern as Category.image_path, just a separate bucket so the
+  // existing category image upload flow is untouched.
+  cover_path: string | null;
   created_at: string;
 }
 
