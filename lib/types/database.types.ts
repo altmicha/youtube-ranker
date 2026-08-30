@@ -32,7 +32,12 @@ export interface Streamer {
   id: string;
   slug: string;
   display_name: string;
-  platform: VideoSource;
+  // Vestigial — a streamer is no longer tied to one platform (see
+  // make_streamer_platform_optional.sql). Existing rows keep their
+  // historical value; new streamers are created with this null.
+  // categories.platform is what actually determines YouTube vs Twitch
+  // now, per category — a streamer can have both.
+  platform: VideoSource | null;
   avatar_url: string | null;
   bio: string | null;
   // Object path within the "streamer-covers" Storage bucket — same
@@ -156,7 +161,7 @@ export interface Database {
       // app/streamer/[slug]/page.tsx can query it with a real type.
       streamers: {
         Row: Streamer;
-        Insert: Partial<Streamer> & { slug: string; display_name: string; platform: VideoSource };
+        Insert: Partial<Streamer> & { slug: string; display_name: string };
         Update: Partial<Streamer>;
         Relationships: [];
       };

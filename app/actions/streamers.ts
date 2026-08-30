@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { categorySlug } from "@/lib/categories";
-import type { VideoSource, Streamer } from "@/lib/types/database.types";
+import type { Streamer } from "@/lib/types/database.types";
 
 // Same creator-only gate as app/actions/categories.ts. Fast, friendly
 // failure path here — the streamers table's own RLS policies (see
@@ -18,8 +18,15 @@ async function requireCreatorProfile() {
   return { profile } as const;
 }
 
-function revalidateStreamerPages(platform: VideoSource, slug?: string) {
-  revalidatePath(platform === "youtube" ? "/youtube" : "/twitch");
+// A streamer is no longer platform-specific (it can have both
+// YouTube and Twitch categories), so there's nothing to scope
+// revalidation to — just refresh everywhere a streamer's name/image
+// could show up.
+function revalidateStreamerPages(slug?: string) {
+  revalidatePath("/youtube");
+  revalidatePath("/twitch");
+  revalidatePath("/youtube/[slug]", "page");
+  revalidatePath("/twitch/[slug]", "page");
   revalidatePath("/creator");
   revalidatePath("/"); // homepage streamer directory
   if (slug) revalidatePath(`/streamer/${slug}`);
@@ -30,7 +37,6 @@ export type StreamerActionResult = { error: string } | { success: true; streamer
 export async function createStreamer(
   name: string,
   slug: string,
-  platform: VideoSource,
   bio: string
 ): Promise<StreamerActionResult> {
   const check = await requireCreatorProfile();
@@ -50,12 +56,14 @@ export async function createStreamer(
   }
 
   const supabase = await createClient();
+  // platform intentionally omitted — streamers aren't platform-scoped
+  // anymore, so this column is left null (see
+  // make_streamer_platform_optional.sql).
   const { data, error } = await supabase
     .from("streamers")
     .insert({
       display_name: trimmedName,
       slug: normalizedSlug,
-      platform,
       bio: bio.trim() || null,
     })
     .select()
@@ -65,7 +73,6 @@ export async function createStreamer(
     console.error("createStreamer: insert into streamers failed", {
       name: trimmedName,
       slug: normalizedSlug,
-      platform,
       code: error.code,
       message: error.message,
       details: error.details,
@@ -73,7 +80,7 @@ export async function createStreamer(
     });
 
     if (error.code === "23505") {
-      return { error: "A streamer with that slug already exists for this platform." };
+      return { error: "A streamer with that slug already exists." };
     }
     if (error.code === "42501") {
       return {
@@ -84,7 +91,7 @@ export async function createStreamer(
     return { error: `Could not create streamer: ${error.message}` };
   }
 
-  revalidateStreamerPages(platform, normalizedSlug);
+  revalidateStreamerPages(normalizedSlug);
   return { success: true, streamer: data };
 }
 
@@ -92,7 +99,6 @@ export type SimpleActionResult = { error: string } | { success: true };
 
 export async function updateStreamer(
   streamerId: string,
-  platform: VideoSource,
   slug: string,
   name: string,
   bio: string
@@ -126,13 +132,12 @@ export async function updateStreamer(
     return { error: `Could not update streamer: ${error.message}` };
   }
 
-  revalidateStreamerPages(platform, slug);
+  revalidateStreamerPages(slug);
   return { success: true };
 }
 
 export async function removeStreamer(
   streamerId: string,
-  platform: VideoSource,
   slug: string
 ): Promise<SimpleActionResult> {
   const check = await requireCreatorProfile();
@@ -146,7 +151,8 @@ export async function removeStreamer(
   // pointing at it would otherwise fail on the FK constraint, so
   // clear those categories back to "no streamer assigned" first —
   // same "don't destroy the thing that references it" precedent as
-  // remove_category() clearing category off videos.
+  // remove_category() clearing category off videos. This now clears
+  // categories across BOTH platforms, since a streamer can have both.
   const { error: unassignError } = await supabase
     .from("categories")
     .update({ streamer_id: null })
@@ -178,14 +184,13 @@ export async function removeStreamer(
     return { error: `Could not remove streamer: ${error.message}` };
   }
 
-  revalidateStreamerPages(platform, slug);
+  revalidateStreamerPages(slug);
   revalidatePath("/videos");
   return { success: true };
 }
 
 export async function uploadStreamerCoverImage(
   streamerId: string,
-  platform: VideoSource,
   slug: string,
   formData: FormData
 ): Promise<SimpleActionResult> {
@@ -242,6 +247,6 @@ export async function uploadStreamerCoverImage(
     return { error: `Image uploaded, but saving it to the streamer failed: ${updateError.message}` };
   }
 
-  revalidateStreamerPages(platform, slug);
+  revalidateStreamerPages(slug);
   return { success: true };
 }

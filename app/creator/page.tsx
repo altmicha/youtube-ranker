@@ -36,13 +36,12 @@ export default async function CreatorDashboardPage() {
   const [
     { data: youtubeCategories },
     { data: twitchCategories },
-    { data: youtubeStreamers },
-    { data: twitchStreamers },
+    { data: streamers },
   ] = await Promise.all([
     supabase.from("categories").select("*").eq("platform", "youtube").order("name"),
     supabase.from("categories").select("*").eq("platform", "twitch").order("name"),
-    supabase.from("streamers").select("*").eq("platform", "youtube").order("display_name"),
-    supabase.from("streamers").select("*").eq("platform", "twitch").order("display_name"),
+    // One unified list — streamers aren't platform-scoped anymore.
+    supabase.from("streamers").select("*").order("display_name"),
   ]);
 
   // Reuse the two category lists already fetched above to build a
@@ -68,8 +67,7 @@ export default async function CreatorDashboardPage() {
       </div>
 
       <StreamerAndCategorySection
-        initialYoutubeStreamers={youtubeStreamers ?? []}
-        initialTwitchStreamers={twitchStreamers ?? []}
+        initialStreamers={streamers ?? []}
         initialYoutubeCategories={youtubeCategories ?? []}
         initialTwitchCategories={twitchCategories ?? []}
       />

@@ -51,17 +51,18 @@ export async function createCategory(
 
   const supabase = await createClient();
 
-  // Confirm the streamer is real and actually belongs to this
-  // platform (a YouTube category shouldn't end up pointing at a
-  // Twitch streamer) before writing anything.
+  // Confirm the streamer is real (streamers aren't platform-scoped
+  // anymore — a single streamer can have both YouTube and Twitch
+  // categories — so there's no platform match to check here, unlike
+  // before).
   const { data: streamer, error: streamerError } = await supabase
     .from("streamers")
-    .select("id, platform")
+    .select("id")
     .eq("id", streamerId)
     .single();
 
-  if (streamerError || !streamer || streamer.platform !== platform) {
-    return { error: "Choose a valid streamer for this platform." };
+  if (streamerError || !streamer) {
+    return { error: "Choose a valid streamer." };
   }
 
   const { data, error } = await supabase
@@ -131,12 +132,12 @@ export async function updateCategory(
 
   const { data: streamer, error: streamerError } = await supabase
     .from("streamers")
-    .select("id, platform")
+    .select("id")
     .eq("id", streamerId)
     .single();
 
-  if (streamerError || !streamer || streamer.platform !== platform) {
-    return { error: "Choose a valid streamer for this platform." };
+  if (streamerError || !streamer) {
+    return { error: "Choose a valid streamer." };
   }
 
   // Slug intentionally not touched — renaming keeps existing

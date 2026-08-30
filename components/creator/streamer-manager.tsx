@@ -9,16 +9,14 @@ import {
 } from "@/app/actions/streamers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Streamer, VideoSource } from "@/lib/types/database.types";
+import type { Streamer } from "@/lib/types/database.types";
 import { streamerCoverUrl } from "@/lib/streamer-image";
 
 function StreamerRow({
   streamer,
-  platform,
   onRemoved,
 }: {
   streamer: Streamer;
-  platform: VideoSource;
   onRemoved: (id: string) => void;
 }) {
   const [currentName, setCurrentName] = useState(streamer.display_name);
@@ -41,7 +39,7 @@ function StreamerRow({
     }
     setMessage(null);
     startTransition(async () => {
-      const result = await updateStreamer(streamer.id, platform, streamer.slug, trimmed, draftBio);
+      const result = await updateStreamer(streamer.id, streamer.slug, trimmed, draftBio);
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
@@ -62,7 +60,7 @@ function StreamerRow({
     if (!confirmed) return;
 
     startTransition(async () => {
-      const result = await removeStreamer(streamer.id, platform, streamer.slug);
+      const result = await removeStreamer(streamer.id, streamer.slug);
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
@@ -81,7 +79,7 @@ function StreamerRow({
     formData.set("image", file);
 
     startTransition(async () => {
-      const result = await uploadStreamerCoverImage(streamer.id, platform, streamer.slug, formData);
+      const result = await uploadStreamerCoverImage(streamer.id, streamer.slug, formData);
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
@@ -213,12 +211,15 @@ function StreamerRow({
   );
 }
 
+// Requirement 1/2: one unified list — a streamer is no longer
+// YouTube-only or Twitch-only, so there's no platform prop here
+// anymore. A streamer's YouTube vs Twitch categories are managed
+// separately in CategoryManager, which is still per-platform (that's
+// where "type: YouTube or Twitch" is actually picked, per category).
 export function StreamerManager({
-  platform,
   initialStreamers,
   onStreamersChange,
 }: {
-  platform: VideoSource;
   initialStreamers: Streamer[];
   // Lets the parent (creator page) keep CategoryManager's streamer
   // picker options in sync as streamers are added/removed here,
@@ -251,7 +252,7 @@ export function StreamerManager({
     }
 
     startTransition(async () => {
-      const result = await createStreamer(newName.trim(), newSlug.trim(), platform, newBio);
+      const result = await createStreamer(newName.trim(), newSlug.trim(), newBio);
       if ("error" in result) {
         setError(result.error);
       } else {
@@ -267,16 +268,13 @@ export function StreamerManager({
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold">
-        {platform === "youtube" ? "YouTube" : "Twitch"} streamers
-      </h3>
+      <h3 className="text-sm font-semibold">Streamers</h3>
 
       <div className="flex flex-col gap-2">
         {streamers.map((s) => (
           <StreamerRow
             key={s.id}
             streamer={s}
-            platform={platform}
             onRemoved={(id) => updateAndNotify(streamers.filter((st) => st.id !== id))}
           />
         ))}

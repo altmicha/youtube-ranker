@@ -61,7 +61,10 @@ export default async function StreamerPage({
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {streamer.display_name}
           </h1>
-          <p className="text-sm capitalize text-muted-foreground">{streamer.platform}</p>
+          {/* Streamers aren't platform-scoped anymore (they can have
+              both YouTube and Twitch categories, shown together
+              below), so a single-platform label here would be
+              inaccurate or stale — removed. */}
         </div>
       </div>
 
