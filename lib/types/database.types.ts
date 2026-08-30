@@ -19,6 +19,24 @@ export type VideoSource = "youtube" | "twitch";
 // Twitch are separate lists: a category row belongs to exactly one
 // platform, so "LSF" on YouTube and "LSF" on Twitch are two distinct
 // rows with their own ids, not one shared value.
+
+// Minimal Streamer type — this app doesn't own/manage this table
+// (you created it directly), so only the columns actually needed
+// here are declared: id (for the categories.streamer_id FK), slug,
+// display_name, platform, and an assumed avatar_url following this
+// app's existing profiles.avatar_url naming convention. If your real
+// column is named differently, the streamer page below falls back to
+// a plain initial-letter avatar rather than crashing on a missing
+// field.
+export interface Streamer {
+  id: string;
+  slug: string;
+  display_name: string;
+  platform: VideoSource;
+  avatar_url: string | null;
+  created_at: string;
+}
+
 export interface Category {
   id: string;
   platform: VideoSource;
@@ -28,11 +46,10 @@ export interface Category {
   // means no custom image uploaded — the UI falls back to a gradient.
   image_path: string | null;
   // Optional link to a streamer (public.streamers.id) this category
-  // belongs to. Nullable — every category created before this existed
-  // has (and can keep) streamer_id = null; nothing currently reads or
-  // writes this field yet (no /streamer/[slug] route, no UI to assign
-  // one) — it's here purely so the type is accurate for whatever
-  // queries/features get built against it next.
+  // belongs to. Nullable — categories created before this existed
+  // keep streamer_id = null. Read by app/streamer/[slug]/page.tsx to
+  // show a streamer's own categories; nothing writes it yet (no
+  // creator UI to assign a streamer to a category).
   streamer_id: string | null;
   created_at: string;
 }
@@ -119,6 +136,23 @@ export interface Database {
         Row: Category;
         Insert: Partial<Category> & { platform: VideoSource; name: string; slug: string };
         Update: Partial<Category>;
+        Relationships: [
+          {
+            foreignKeyName: "categories_streamer_id_fkey";
+            columns: ["streamer_id"];
+            isOneToOne: false;
+            referencedRelation: "streamers";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      // Read-only from this app's perspective — the streamers table
+      // is managed outside this codebase. Only declared here so
+      // app/streamer/[slug]/page.tsx can query it with a real type.
+      streamers: {
+        Row: Streamer;
+        Insert: Partial<Streamer> & { slug: string; display_name: string; platform: VideoSource };
+        Update: Partial<Streamer>;
         Relationships: [];
       };
       videos: {
