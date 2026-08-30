@@ -22,10 +22,16 @@ export function StreamerAndCategorySection({
   initialStreamers,
   initialYoutubeCategories,
   initialTwitchCategories,
+  canManageOfficial,
 }: {
   initialStreamers: Streamer[];
   initialYoutubeCategories: Category[];
   initialTwitchCategories: Category[];
+  // Creator-only. Passed down from app/creator/page.tsx (which knows
+  // the current viewer's role) to both CategoryManagers, so a
+  // streamer viewing this page can still add Queue categories but
+  // not Official ones — see canManageOfficial in CategoryManager.
+  canManageOfficial: boolean;
 }) {
   const [streamers, setStreamers] = useState(initialStreamers);
 
@@ -43,11 +49,13 @@ export function StreamerAndCategorySection({
             platform="youtube"
             initialCategories={initialYoutubeCategories}
             streamers={streamers}
+            canManageOfficial={canManageOfficial}
           />
           <CategoryManager
             platform="twitch"
             initialCategories={initialTwitchCategories}
             streamers={streamers}
+            canManageOfficial={canManageOfficial}
           />
         </div>
       </div>

@@ -47,6 +47,8 @@ export interface Streamer {
   created_at: string;
 }
 
+export type CategoryKind = "official" | "queue";
+
 export interface Category {
   id: string;
   platform: VideoSource;
@@ -58,9 +60,13 @@ export interface Category {
   // Optional link to a streamer (public.streamers.id) this category
   // belongs to. Nullable — categories created before this existed
   // keep streamer_id = null. Read by app/streamer/[slug]/page.tsx to
-  // show a streamer's own categories; nothing writes it yet (no
-  // creator UI to assign a streamer to a category).
+  // show a streamer's own categories.
   streamer_id: string | null;
+  // "official" (creator/streamer/admin-only submissions, the original
+  // category type) or "queue" (a reaction-request queue — any
+  // logged-in user can submit). Existing categories default to
+  // "official" via the DB column's own default.
+  kind: CategoryKind;
   created_at: string;
 }
 

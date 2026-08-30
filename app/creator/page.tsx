@@ -1,4 +1,4 @@
-import { requireCreator } from "@/lib/auth/roles";
+import { requireCreatorOrStreamer } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import { AwardPointsButton } from "@/components/award-points-button";
 import { RemoveVideoButton } from "@/components/remove-video-button";
@@ -9,8 +9,14 @@ import { Separator } from "@/components/ui/separator";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 
 export default async function CreatorDashboardPage() {
-  // Access gate: redirects to /login if signed out, or / if not a creator.
-  const creator = await requireCreator();
+  // Access gate: redirects to /login if signed out, or / if the
+  // viewer is neither a creator nor a streamer. Streamers can reach
+  // this page now (to manage their own reaction queue categories),
+  // but more sensitive actions (award points, remove videos, add
+  // official categories) stay creator-only at the Server Action level
+  // regardless — see canManageOfficial below and the various
+  // requireCreatorProfile() checks in app/actions/*.ts.
+  const profile = await requireCreatorOrStreamer();
 
   const supabase = await createClient();
   const { data: videos } = await supabase
@@ -25,7 +31,7 @@ export default async function CreatorDashboardPage() {
     const { data: myAwards } = await supabase
       .from("video_creator_awards")
       .select("video_id")
-      .eq("creator_id", creator.id)
+      .eq("creator_id", profile.id)
       .in(
         "video_id",
         videos.map((v) => v.id)
@@ -70,6 +76,7 @@ export default async function CreatorDashboardPage() {
         initialStreamers={streamers ?? []}
         initialYoutubeCategories={youtubeCategories ?? []}
         initialTwitchCategories={twitchCategories ?? []}
+        canManageOfficial={profile.role === "creator"}
       />
 
       <Separator />

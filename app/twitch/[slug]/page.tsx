@@ -123,9 +123,9 @@ export default async function TwitchCategoryPage({
       </div>
 
       {/* See app/youtube/[slug]/page.tsx for the same pattern and
-          rationale — reuses SubmitVideoForm unmodified, constrained
-          to this page's own category. */}
-      {canSubmitOnCategoryPage(profile?.role) && (
+          rationale — official vs queue determines who can see this
+          form, enforced server-side too, not just here. */}
+      {(category.kind === "queue" ? !!profile : canSubmitOnCategoryPage(profile?.role)) && (
         <SubmitVideoForm platform="twitch" categories={[category]} />
       )}
 

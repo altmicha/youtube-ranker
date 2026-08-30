@@ -104,6 +104,23 @@ export async function requireCreator(): Promise<Profile> {
   return profile;
 }
 
+/**
+ * Redirects to /login (not signed in) or / (signed in but neither a
+ * creator nor a streamer). Used for the /creator page's access gate,
+ * which now also lets streamers in (to manage their own reaction
+ * queue categories) — more sensitive actions on that page (award
+ * points, remove videos, manage official categories) stay gated to
+ * creator-only at the Server Action level regardless of who can view
+ * the page.
+ */
+export async function requireCreatorOrStreamer(): Promise<Profile> {
+  const profile = await requireUser();
+  if (profile.role !== "creator" && profile.role !== "streamer") {
+    redirect("/");
+  }
+  return profile;
+}
+
 // Category-page submit forms are shown to creator, streamer, and
 // admin roles — never a plain "user", and never a signed-out visitor.
 // Shared by both app/youtube/[slug]/page.tsx and

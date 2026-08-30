@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StreamerCategoryList } from "@/components/streamer-category-list";
+import { Separator } from "@/components/ui/separator";
 
 export default async function StreamerPage({
   params,
@@ -73,7 +74,24 @@ export default async function StreamerPage({
           Could not load categories: {categoriesError.message}
         </p>
       ) : (
-        <StreamerCategoryList categories={categories ?? []} />
+        <>
+          {/*
+            Requirement: official categories first (unchanged from
+            before), then a divider, then the queue section — works
+            for any streamer since both lists are just this streamer's
+            categories split by `kind`, nothing hardcoded.
+          */}
+          <StreamerCategoryList categories={(categories ?? []).filter((c) => c.kind === "official")} />
+
+          <Separator />
+
+          <div>
+            <h2 className="mb-3 text-lg font-semibold">
+              Submit videos for your creator to react to
+            </h2>
+            <StreamerCategoryList categories={(categories ?? []).filter((c) => c.kind === "queue")} />
+          </div>
+        </>
       )}
     </div>
   );

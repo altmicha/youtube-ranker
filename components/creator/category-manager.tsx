@@ -9,7 +9,7 @@ import {
 } from "@/app/actions/categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Category, Streamer, VideoSource } from "@/lib/types/database.types";
+import type { Category, CategoryKind, Streamer, VideoSource } from "@/lib/types/database.types";
 import { categoryImageUrl } from "@/lib/category-image";
 
 function StreamerSelect({
@@ -262,24 +262,34 @@ function CategoryRow({
   );
 }
 
-export function CategoryManager({
+// One kind's list + its own add-form. Rendered twice by
+// CategoryManager below (once for "official", once for "queue") —
+// requirement: don't mix them into one unlabeled list; each group has
+// its own heading, so which kind you're adding is implied by which
+// group's form you use (same pattern the app already uses for
+// platform: which CategoryManager instance you're in implies
+// youtube vs twitch).
+function CategoryGroup({
+  kind,
+  label,
   platform,
-  initialCategories,
+  categories,
   streamers,
+  streamerNameById,
+  onCategoriesChange,
 }: {
+  kind: CategoryKind;
+  label: string;
   platform: VideoSource;
-  initialCategories: Category[];
-  // This platform's streamers, fetched by the creator page — used to
-  // populate both the add-category and edit-category streamer pickers.
+  categories: Category[];
   streamers: Streamer[];
+  streamerNameById: Map<string, string>;
+  onCategoriesChange: (next: Category[]) => void;
 }) {
-  const [categories, setCategories] = useState(initialCategories);
   const [newName, setNewName] = useState("");
   const [newStreamerId, setNewStreamerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  const streamerNameById = new Map(streamers.map((s) => [s.id, s.display_name]));
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -295,12 +305,12 @@ export function CategoryManager({
     }
 
     startTransition(async () => {
-      const result = await createCategory(platform, newName.trim(), newStreamerId);
+      const result = await createCategory(platform, newName.trim(), newStreamerId, kind);
       if ("error" in result) {
         setError(result.error);
       } else {
-        setCategories((prev) =>
-          [...prev, result.category].sort((a, b) => a.name.localeCompare(b.name))
+        onCategoriesChange(
+          [...categories, result.category].sort((a, b) => a.name.localeCompare(b.name))
         );
         setNewName("");
         setNewStreamerId("");
@@ -309,32 +319,30 @@ export function CategoryManager({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold">
-        {platform === "youtube" ? "YouTube" : "Twitch"} categories
-      </h3>
+    <div className="flex flex-col gap-2">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </h4>
 
-      <div className="flex flex-col gap-2">
-        {categories.map((c) => (
-          <CategoryRow
-            key={c.id}
-            category={c}
-            platform={platform}
-            streamers={streamers}
-            streamerName={c.streamer_id ? streamerNameById.get(c.streamer_id) ?? null : null}
-            onRemoved={(id) => setCategories((prev) => prev.filter((cat) => cat.id !== id))}
-          />
-        ))}
-        {categories.length === 0 && (
-          <p className="text-sm text-muted-foreground">No categories yet.</p>
-        )}
-      </div>
+      {categories.map((c) => (
+        <CategoryRow
+          key={c.id}
+          category={c}
+          platform={platform}
+          streamers={streamers}
+          streamerName={c.streamer_id ? streamerNameById.get(c.streamer_id) ?? null : null}
+          onRemoved={(id) => onCategoriesChange(categories.filter((cat) => cat.id !== id))}
+        />
+      ))}
+      {categories.length === 0 && (
+        <p className="text-sm text-muted-foreground">No {label.toLowerCase()} categories yet.</p>
+      )}
 
       <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
         <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          placeholder={`New ${platform === "youtube" ? "YouTube" : "Twitch"} category…`}
+          placeholder={`New ${label.toLowerCase()} category…`}
           disabled={isPending}
           className="h-9 flex-1"
         />
@@ -345,16 +353,85 @@ export function CategoryManager({
           disabled={isPending}
         />
         <Button type="submit" size="sm" disabled={isPending || streamers.length === 0}>
-          {isPending ? "Adding…" : "Add category"}
+          {isPending ? "Adding…" : "Add"}
         </Button>
       </form>
       {streamers.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          Add a {platform === "youtube" ? "YouTube" : "Twitch"} streamer above first — every
-          category needs one.
-        </p>
+        <p className="text-xs text-muted-foreground">Add a streamer above first — every category needs one.</p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+export function CategoryManager({
+  platform,
+  initialCategories,
+  streamers,
+  // Whether the current viewer can add/see the "Official" group's add
+  // form — creator-only. A streamer viewing /creator still sees the
+  // Official list (for context) but not its add-form; the Queue
+  // group's add-form is always shown to both roles (both are allowed
+  // to reach this component at all, since /creator itself now gates
+  // on creator-or-streamer).
+  canManageOfficial,
+}: {
+  platform: VideoSource;
+  initialCategories: Category[];
+  streamers: Streamer[];
+  canManageOfficial: boolean;
+}) {
+  const [categories, setCategories] = useState(initialCategories);
+
+  const official = categories.filter((c) => c.kind === "official");
+  const queue = categories.filter((c) => c.kind === "queue");
+  const streamerNameById = new Map(streamers.map((s) => [s.id, s.display_name]));
+
+  function applyChange(kind: CategoryKind, next: Category[]) {
+    setCategories((prev) => [...prev.filter((c) => c.kind !== kind), ...next]);
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h3 className="text-sm font-semibold">
+        {platform === "youtube" ? "YouTube" : "Twitch"} categories
+      </h3>
+
+      {canManageOfficial ? (
+        <CategoryGroup
+          kind="official"
+          label="Official"
+          platform={platform}
+          categories={official}
+          streamers={streamers}
+          streamerNameById={streamerNameById}
+          onCategoriesChange={(next) => applyChange("official", next)}
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Official
+          </h4>
+          {official.map((c) => (
+            <div key={c.id} className="rounded-md border p-2 text-sm">
+              {c.name} — {c.streamer_id ? streamerNameById.get(c.streamer_id) ?? "" : "No streamer assigned"}
+            </div>
+          ))}
+          {official.length === 0 && (
+            <p className="text-sm text-muted-foreground">No official categories yet.</p>
+          )}
+        </div>
+      )}
+
+      <CategoryGroup
+        kind="queue"
+        label="Queue"
+        platform={platform}
+        categories={queue}
+        streamers={streamers}
+        streamerNameById={streamerNameById}
+        onCategoriesChange={(next) => applyChange("queue", next)}
+      />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { categorySlug } from "@/lib/categories";
-import type { VideoSource, Category } from "@/lib/types/database.types";
+import type { VideoSource, Category, CategoryKind } from "@/lib/types/database.types";
 
 // Every action in this file starts with the same check: only
 // role = 'creator' can manage categories. This is the fast, friendly
@@ -29,10 +29,33 @@ export type CategoryActionResult = { error: string } | { success: true; category
 export async function createCategory(
   platform: VideoSource,
   name: string,
-  streamerId: string
+  streamerId: string,
+  kind: CategoryKind
 ): Promise<CategoryActionResult> {
-  const check = await requireCreatorProfile();
-  if ("error" in check) return check;
+  // Different permission rule depending on kind, so this doesn't use
+  // the shared requireCreatorProfile() above (that's creator-only,
+  // still exactly right for updateCategory/removeCategory/
+  // uploadCategoryImage below — none of those changed). Official
+  // categories: creator only, as before. Queue categories: creator OR
+  // streamer. The categories table's own RLS policy enforces the same
+  // split at the database level (see add_category_kind.sql) — this
+  // is the fast, friendly failure path, not the only guard.
+  const profile = await getCurrentProfile();
+  if (!profile) {
+    return { error: "You need to sign in." };
+  }
+  const allowed =
+    kind === "queue"
+      ? profile.role === "creator" || profile.role === "streamer"
+      : profile.role === "creator";
+  if (!allowed) {
+    return {
+      error:
+        kind === "queue"
+          ? "Only creators or streamers can add a reaction queue category."
+          : "Only creators can add official categories.",
+    };
+  }
 
   const trimmed = name.trim();
   if (!trimmed) {
@@ -67,7 +90,7 @@ export async function createCategory(
 
   const { data, error } = await supabase
     .from("categories")
-    .insert({ platform, name: trimmed, slug, streamer_id: streamerId })
+    .insert({ platform, name: trimmed, slug, streamer_id: streamerId, kind })
     .select()
     .single();
 
@@ -79,6 +102,7 @@ export async function createCategory(
       name: trimmed,
       slug,
       streamerId,
+      kind,
       code: error.code,
       message: error.message,
       details: error.details,
@@ -89,12 +113,12 @@ export async function createCategory(
       return { error: `A ${platform === "youtube" ? "YouTube" : "Twitch"} category with that name already exists.` };
     }
     if (error.code === "42501") {
-      // RLS rejected the insert — almost always means this account's
-      // profiles.role isn't actually 'creator' in the database, even
-      // if the UI thinks it is.
+      // RLS rejected the insert — either this account's profiles.role
+      // doesn't actually match what's needed for this kind, or
+      // add_category_kind.sql's updated RLS policy hasn't been run yet.
       return {
         error:
-          "Permission denied by the database (row-level security). Confirm this account's role is set to 'creator' in the profiles table.",
+          "Permission denied by the database (row-level security). Confirm this account's role, and that add_category_kind.sql has been run.",
       };
     }
     // Requirement 2: show the real error instead of a generic one.

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentProfile } from "@/lib/auth/roles";
+import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
 import { extractTwitchClipSlug, fetchTwitchClipMetadata } from "@/lib/twitch";
 import type { VideoSource } from "@/lib/types/database.types";
@@ -65,7 +65,7 @@ export async function submitVideo(
   // catches an invalid category earlier with a clean error message.
   const { data: category, error: categoryError } = await supabase
     .from("categories")
-    .select("slug, platform")
+    .select("slug, platform, kind")
     .eq("platform", platform)
     .eq("slug", categorySlug)
     .single();
@@ -81,6 +81,16 @@ export async function submitVideo(
   }
   if (!category) {
     return { error: "Choose a valid category for this page." };
+  }
+
+  // Requirement: official categories are still creator/streamer/
+  // admin-only to submit to — enforced here, server-side, not just by
+  // hiding the form on the category page (a request built by hand
+  // bypassing the UI is rejected the same way a normal user would be).
+  // Queue categories have no role restriction beyond being signed in,
+  // which the check at the top of this function already covers.
+  if (category.kind === "official" && !canSubmitOnCategoryPage(profile.role)) {
+    return { error: "Only creators, streamers, or admins can submit to this category." };
   }
 
   // Rate limit: normal users can submit at most 3 videos per hour,
