@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile } from "@/lib/types/database.types";
+import type { Profile, UserRole } from "@/lib/types/database.types";
 import type { User } from "@supabase/supabase-js";
 
 // "Incognito works, but old cookies hang on mobile" points at a real
@@ -102,4 +102,15 @@ export async function requireCreator(): Promise<Profile> {
     redirect("/");
   }
   return profile;
+}
+
+// Category-page submit forms are shown to creator, streamer, and
+// admin roles — never a plain "user", and never a signed-out visitor.
+// Shared by both app/youtube/[slug]/page.tsx and
+// app/twitch/[slug]/page.tsx so the allowed-role list only lives in
+// one place.
+const SUBMIT_FORM_ROLES: readonly UserRole[] = ["creator", "streamer", "admin"];
+
+export function canSubmitOnCategoryPage(role: UserRole | undefined): boolean {
+  return !!role && SUBMIT_FORM_ROLES.includes(role);
 }

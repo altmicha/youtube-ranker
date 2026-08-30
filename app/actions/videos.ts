@@ -165,6 +165,11 @@ async function submitYoutubeVideo(
   }
 
   revalidatePath("/youtube");
+  // Requirement: after a successful submit, the new item should show
+  // in the list on the category page itself — /youtube only covered
+  // the platform landing page before. The 'page' type invalidates
+  // every /youtube/<slug> route, whichever category this was.
+  revalidatePath("/youtube/[slug]", "page");
   revalidatePath("/creator");
   return { success: true };
 }
@@ -206,6 +211,7 @@ async function submitTwitchClip(
   }
 
   revalidatePath("/twitch");
+  revalidatePath("/twitch/[slug]", "page");
   revalidatePath("/creator");
   return { success: true };
 }
@@ -240,7 +246,9 @@ export async function removeVideo(videoId: string): Promise<RemoveVideoResult> {
   // pages, and creator dashboard (is_removed = false), so revalidating
   // those paths makes them disappear immediately.
   revalidatePath("/youtube");
+  revalidatePath("/youtube/[slug]", "page");
   revalidatePath("/twitch");
+  revalidatePath("/twitch/[slug]", "page");
   revalidatePath("/creator");
   return { success: true };
 }

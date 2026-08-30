@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentProfile } from "@/lib/auth/roles";
+import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
 import { LoadMoreLink, PAGE_SIZE } from "@/components/load-more-link";
+import { SubmitVideoForm } from "@/components/submit-video-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
@@ -102,6 +103,13 @@ export default async function TwitchCategoryPage({
           </p>
         )}
       </div>
+
+      {/* See app/youtube/[slug]/page.tsx for the same pattern and
+          rationale — reuses SubmitVideoForm unmodified, constrained
+          to this page's own category. */}
+      {canSubmitOnCategoryPage(profile?.role) && (
+        <SubmitVideoForm platform="twitch" categories={[category]} />
+      )}
 
       <div className="flex flex-col gap-1.5">
         <VideoPlayerProvider>

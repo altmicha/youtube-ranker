@@ -11,7 +11,7 @@
 // mirrors what `npx supabase gen types typescript` produces, so it's
 // safe to replace this file with a generated one later.
 
-export type UserRole = "user" | "creator";
+export type UserRole = "user" | "creator" | "streamer" | "admin";
 export type VideoSource = "youtube" | "twitch";
 
 // Categories are a real, editable table now (creator-managed — see

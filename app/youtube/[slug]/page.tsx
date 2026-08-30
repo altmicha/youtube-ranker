@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentProfile } from "@/lib/auth/roles";
+import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
 import { LoadMoreLink, PAGE_SIZE } from "@/components/load-more-link";
+import { SubmitVideoForm } from "@/components/submit-video-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
@@ -105,6 +106,21 @@ export default async function YoutubeCategoryPage({
           </p>
         )}
       </div>
+
+      {/*
+        Requirement: only creator/streamer/admin roles see this — not
+        a signed-out visitor, not a plain "user". Reuses the exact
+        same SubmitVideoForm used on /youtube, just constrained to a
+        single-item categories array (this page's own category), so
+        the submission always lands in "the category of the current
+        page" with zero changes to that component. Works for every
+        category/streamer automatically since `category` is looked up
+        dynamically above (by platform+slug) — nothing here is
+        hardcoded.
+      */}
+      {canSubmitOnCategoryPage(profile?.role) && (
+        <SubmitVideoForm platform="youtube" categories={[category]} />
+      )}
 
       <div className="flex flex-col gap-1.5">
         <VideoPlayerProvider>
