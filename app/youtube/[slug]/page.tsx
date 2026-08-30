@@ -31,6 +31,24 @@ export default async function YoutubeCategoryPage({
 
   if (!category) notFound();
 
+  // Requirement: back link goes to the category's streamer, not the
+  // platform page. Looked up dynamically from category.streamer_id —
+  // works for any streamer, nothing hardcoded. Falls back to a plain
+  // link home if this category has no streamer assigned.
+  let backHref = "/";
+  let backLabel = "← Back home";
+  if (category.streamer_id) {
+    const { data: streamer } = await supabase
+      .from("streamers")
+      .select("slug, display_name")
+      .eq("id", category.streamer_id)
+      .single();
+    if (streamer) {
+      backHref = `/streamer/${streamer.slug}`;
+      backLabel = `← Back to ${streamer.display_name}`;
+    }
+  }
+
   const sp = await searchParams;
   const range = parseTimeRange(sp.range);
   const since = timeRangeSince(range);
@@ -83,10 +101,10 @@ export default async function YoutubeCategoryPage({
     <div className="flex flex-col gap-4">
       <div>
         <Link
-          href="/youtube"
+          href={backHref}
           className="text-sm text-muted-foreground hover:text-foreground hover:underline"
         >
-          ← Back to YouTube categories
+          {backLabel}
         </Link>
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
