@@ -55,7 +55,7 @@ export async function filterVideosByTimeWindow(
     .map((v) => ({ ...v, submission_count: windowCounts.get(v.id) ?? 0 }));
 }
 
-export type SortField = "submissions" | "views" | "date" | "votes";
+export type SortField = "submissions" | "views" | "date" | "votes" | "like_ratio";
 export type SortDirection = "desc" | "asc";
 
 const SORT_PARAM_MAP: Record<string, { field: SortField; direction: SortDirection }> = {
@@ -65,6 +65,10 @@ const SORT_PARAM_MAP: Record<string, { field: SortField; direction: SortDirectio
   date_asc: { field: "date", direction: "asc" },
   votes_desc: { field: "votes", direction: "desc" },
   votes_asc: { field: "votes", direction: "asc" },
+  // YouTube-only (see components/sort-filter.tsx's showLikeRatio prop
+  // and app/youtube/[slug]/page.tsx) — one direction only, "highest",
+  // per the request; there's no like_ratio_asc entry.
+  like_ratio_desc: { field: "like_ratio", direction: "desc" },
 };
 
 // Default (no ?sort=, or an unrecognized value) is submissions
@@ -96,6 +100,14 @@ export function sortOrderColumn(field: SortField): string {
       return "published_at";
     case "votes":
       return "vote_count";
+    case "like_ratio":
+      // like/view ratio isn't a real column, so it can't be pushed
+      // down to a single PostgREST .order() call — like_count is the
+      // closest available proxy for prioritizing the initial fetch
+      // (videos with more likes are more likely to have a good
+      // ratio). The exact ratio-based order is then applied precisely
+      // in sortVideos() below on whatever this fetch returns.
+      return "like_count";
     case "submissions":
     default:
       return "submission_count";
@@ -116,6 +128,23 @@ export function sortVideos(videos: Video[], field: SortField, direction: SortDir
       }
       case "votes":
         return sign * (a.vote_count - b.vote_count);
+      case "like_ratio": {
+        // Requirement: put 0-view videos last, regardless of sort
+        // direction — a ratio is undefined with zero views, not "low".
+        // Uses whatever like_count/view_count are already stored on
+        // the video (populated at submit time from the YouTube stats
+        // fetch — see lib/youtube.ts); nothing new is fetched here.
+        const aViews = a.view_count ?? 0;
+        const bViews = b.view_count ?? 0;
+        const aHasViews = aViews > 0;
+        const bHasViews = bViews > 0;
+        if (!aHasViews && !bHasViews) return 0;
+        if (!aHasViews) return 1;
+        if (!bHasViews) return -1;
+        const aRatio = (a.like_count ?? 0) / aViews;
+        const bRatio = (b.like_count ?? 0) / bViews;
+        return sign * (aRatio - bRatio);
+      }
       case "submissions":
       default:
         return sign * (a.submission_count - b.submission_count);

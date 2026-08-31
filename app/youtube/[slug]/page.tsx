@@ -134,7 +134,14 @@ export default async function YoutubeCategoryPage({
         </div>
 
         <div className="mt-2">
-          <SortFilter basePath="/youtube" categorySlug={slug} range={range} kind={kind} active={sp.sort} />
+          <SortFilter
+            basePath="/youtube"
+            categorySlug={slug}
+            range={range}
+            kind={kind}
+            active={sp.sort}
+            showLikeRatio
+          />
         </div>
 
         <p className="mt-1 font-mono text-xs text-muted-foreground">

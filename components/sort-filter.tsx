@@ -12,6 +12,8 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "votes_asc", label: "Fewest votes" },
 ];
 
+const LIKE_RATIO_OPTION = { value: "like_ratio_desc", label: "Highest like/view ratio" };
+
 // Same plain-Link pill pattern as TimeRangeFilter — no client JS
 // state, just links to a page that fetches with a different ?sort=.
 // No "reset to default" pill: the default (submissions, most-first)
@@ -25,18 +27,24 @@ export function SortFilter({
   // Raw ?sort= value if one is active (e.g. "views_desc"), or
   // undefined for the default (submissions descending).
   active,
+  // YouTube-category-page-only extra sort option — this component is
+  // shared with /twitch/[slug], which never passes this, so Twitch
+  // pages never render or link to like_ratio_desc at all.
+  showLikeRatio = false,
 }: {
   basePath: string;
   categorySlug: string;
   range: TimeRange;
   kind: CategoryKind;
   active?: string;
+  showLikeRatio?: boolean;
 }) {
   const kindParam = kind === "queue" ? "&kind=queue" : "";
+  const options = showLikeRatio ? [...SORT_OPTIONS, LIKE_RATIO_OPTION] : SORT_OPTIONS;
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      {SORT_OPTIONS.map((opt) => (
+      {options.map((opt) => (
         <Link
           key={opt.value}
           href={`${basePath}/${categorySlug}?range=${range}&sort=${opt.value}${kindParam}`}
