@@ -15,18 +15,28 @@ import { refreshTwitchAvatars } from "@/lib/twitch-avatar-refresh";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// The creator's image upload (app/actions/streamers.ts,
-// uploadStreamerCoverImage) always writes a bare Storage object path
-// into cover_path — never a full URL — so that's checked first and
-// always run through streamerCoverUrl() to become a usable <img> src.
-// avatar_url is kept in sync with the streamer's Twitch profile
-// picture (lib/twitch-avatar-refresh.ts) — a real https:// URL
-// already, so it's used as-is there; only treated as a bare Storage
-// path in the (now rarer) case it was ever set some other way.
-// cover_path always wins when both are set — a creator's own upload
-// is never overwritten by the Twitch sync, which never touches that
-// field at all.
-function resolveStreamerImage(streamer: { cover_path: string | null; avatar_url: string | null }): string | null {
+// Requirement: when twitch_login is set, the Twitch profile picture
+// (avatar_url, kept in sync by lib/twitch-avatar-refresh.ts) always
+// wins for display — even over a creator's own uploaded cover. This
+// intentionally reverses the previous priority (cover_path first) for
+// exactly that group of streamers; it's fine for the Twitch avatar to
+// visually replace a custom cover here, per this requirement. cover_path
+// itself is never touched or deleted by this — a streamer who later
+// clears twitch_login falls straight back to their existing cover.
+//
+// When twitch_login is empty, nothing changes: cover_path first (a
+// bare Storage object path — always run through streamerCoverUrl()),
+// then avatar_url as a fallback (used as-is if already a full URL,
+// otherwise also treated as a bare Storage path), then the
+// letter-placeholder handled separately below.
+function resolveStreamerImage(streamer: {
+  cover_path: string | null;
+  avatar_url: string | null;
+  twitch_login: string | null;
+}): string | null {
+  if (streamer.twitch_login) {
+    return streamer.avatar_url ?? null;
+  }
   if (streamer.cover_path) {
     return streamerCoverUrl(streamer.cover_path);
   }

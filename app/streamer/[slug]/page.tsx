@@ -74,28 +74,38 @@ export default async function StreamerPage({
         ← Back home
       </Link>
 
-      <div className="flex items-center gap-4">
+      {/*
+        Compact header: fixed 48x48 circular avatar + name beside it,
+        same size for every streamer regardless of whether they have
+        an image (placeholder circle matches exactly). Not the large
+        hero-style avatar this page used before — inline style used
+        alongside the Tailwind classes for the same reason as the
+        48x48 dashboard thumbnails in components/creator/category-manager.tsx:
+        belt-and-suspenders sizing that can't be affected by anything
+        external.
+      */}
+      <div className="flex items-center gap-3">
         {streamer.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={streamer.avatar_url}
             alt=""
-            className="h-16 w-16 flex-shrink-0 rounded-full object-cover"
+            width={48}
+            height={48}
+            className="block flex-shrink-0 rounded-full object-cover"
+            style={{ width: 48, height: 48, objectFit: "cover" }}
           />
         ) : (
-          <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-muted text-xl font-semibold text-muted-foreground">
+          <div
+            className="flex flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground"
+            style={{ width: 48, height: 48 }}
+          >
             {streamer.display_name?.[0]?.toUpperCase() ?? "?"}
           </div>
         )}
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            {streamer.display_name}
-          </h1>
-          {/* Streamers aren't platform-scoped anymore (they can have
-              both YouTube and Twitch categories, shown together
-              below), so a single-platform label here would be
-              inaccurate or stale — removed. */}
-        </div>
+        <h1 className="text-lg font-semibold tracking-tight">
+          {streamer.display_name}
+        </h1>
       </div>
 
       {categoriesError ? (
