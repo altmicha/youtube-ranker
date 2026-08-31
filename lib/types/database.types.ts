@@ -49,6 +49,10 @@ export interface Streamer {
   // and lib/twitch-live.ts. Nullable; only streamers with this set
   // ever get checked. Added by add_twitch_login.sql if missing.
   twitch_login: string | null;
+  // YouTube channel id (e.g. "UCxxxxxxxx", not a handle or custom
+  // URL) used to build the "Watch on YouTube" hero button on
+  // /streamer/[slug]. Nullable; added by add_youtube_channel_id.sql.
+  youtube_channel_id: string | null;
   // Live status + concurrent viewer count, read directly from the
   // table on every homepage render (fast, no external call) and kept
   // fresh by a background Twitch check scheduled via next/server's
