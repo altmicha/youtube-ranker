@@ -131,6 +131,56 @@ export interface TwitchClipSummary {
 }
 
 /**
+ * Fetches profile_image_url for up to 100 Twitch logins in one Helix
+ * Get Users call (same endpoint fetchTwitchBroadcasterId uses for a
+ * single login, batched here instead). Returns a map keyed by
+ * lowercased login; a login Twitch doesn't return anything for (bad
+ * username, deleted account) simply isn't in the map.
+ */
+export async function fetchTwitchProfileImages(
+  logins: string[]
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (logins.length === 0) return result;
+
+  const clientId = process.env.TWITCH_CLIENT_ID;
+  if (!clientId) return result;
+
+  const token = await getTwitchAppAccessToken();
+  if (!token) return result;
+
+  // Helix caps login at 100 per request.
+  const capped = logins.slice(0, 100);
+
+  const url = new URL("https://api.twitch.tv/helix/users");
+  capped.forEach((login) => url.searchParams.append("login", login));
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` },
+      cache: "no-store",
+      next: { revalidate: 0 },
+    });
+    if (!res.ok) {
+      console.error(`Twitch Helix users error: ${res.status} ${res.statusText}`);
+      return result;
+    }
+
+    const data = await res.json();
+    for (const user of data?.data ?? []) {
+      const login = typeof user.login === "string" ? user.login.toLowerCase() : null;
+      const imageUrl = typeof user.profile_image_url === "string" ? user.profile_image_url : null;
+      if (login && imageUrl) result.set(login, imageUrl);
+    }
+
+    return result;
+  } catch (err) {
+    console.error("Twitch profile images fetch failed:", err);
+    return result;
+  }
+}
+
+/**
  * Resolves a Twitch login (username) to that channel's broadcaster id
  * — Helix's clips/streams-by-broadcaster endpoints need the id, not
  * the login. Returns null on any failure or if the login doesn't

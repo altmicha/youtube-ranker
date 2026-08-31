@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { streamerCoverUrl } from "@/lib/streamer-image";
 import { formatCount } from "@/lib/format";
 import { refreshTwitchLiveStatuses } from "@/lib/twitch-live";
+import { refreshTwitchAvatars } from "@/lib/twitch-avatar-refresh";
 
 // Requirement: do not cache the homepage — live badges need to
 // reflect the current state on every load, not a cached render from
@@ -18,10 +19,13 @@ export const revalidate = 0;
 // uploadStreamerCoverImage) always writes a bare Storage object path
 // into cover_path — never a full URL — so that's checked first and
 // always run through streamerCoverUrl() to become a usable <img> src.
-// avatar_url isn't written by any upload flow in this app today, but
-// is checked as a fallback in case it's ever set directly: used as-is
-// if it's already a full URL, otherwise also treated as a bare
-// Storage path.
+// avatar_url is kept in sync with the streamer's Twitch profile
+// picture (lib/twitch-avatar-refresh.ts) — a real https:// URL
+// already, so it's used as-is there; only treated as a bare Storage
+// path in the (now rarer) case it was ever set some other way.
+// cover_path always wins when both are set — a creator's own upload
+// is never overwritten by the Twitch sync, which never touches that
+// field at all.
 function resolveStreamerImage(streamer: { cover_path: string | null; avatar_url: string | null }): string | null {
   if (streamer.cover_path) {
     return streamerCoverUrl(streamer.cover_path);
@@ -86,6 +90,10 @@ export default async function HomePage() {
 
   if (streamersWithTwitchLogin.length > 0) {
     after(() => refreshTwitchLiveStatuses(streamersWithTwitchLogin));
+    // Requirement: same twitch_login-only list, its own 1-hour
+    // cooldown (separate from the 60s live-status one) — see
+    // lib/twitch-avatar-refresh.ts.
+    after(() => refreshTwitchAvatars(streamersWithTwitchLogin));
   }
 
   // YouTube live isn't checked — there's no existing YouTube live

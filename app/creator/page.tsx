@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 import { refreshTopDailyClips } from "@/lib/top-daily-clips-refresh";
+import { refreshTwitchAvatars } from "@/lib/twitch-avatar-refresh";
 
 export default async function CreatorDashboardPage() {
   // Access gate: redirects to /login if signed out, or / if the
@@ -75,6 +76,10 @@ export default async function CreatorDashboardPage() {
 
   if (streamersWithTwitchLogin.length > 0) {
     after(() => refreshTopDailyClips(streamersWithTwitchLogin));
+    // Requirement: avatar sync also runs from /creator, same
+    // twitch_login-only list, its own 1-hour cooldown — see
+    // lib/twitch-avatar-refresh.ts.
+    after(() => refreshTwitchAvatars(streamersWithTwitchLogin));
   }
 
   return (
