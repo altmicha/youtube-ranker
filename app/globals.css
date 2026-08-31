@@ -96,3 +96,18 @@
     color-scheme: dark;
   }
 }
+
+/* Fallback for the homepage LIVE badge's pulse (see app/page.tsx),
+   in case Tailwind's animate-pulse utility isn't present in this
+   build for any reason. Not applied by default — the LIVE span uses
+   animate-pulse directly; add "live-pulse" to its className too if
+   the pulse isn't visible after deploying. */
+@keyframes livepulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+.live-pulse {
+  animation: livepulse 1.5s ease-in-out infinite;
+  color: #ef4444;
+}

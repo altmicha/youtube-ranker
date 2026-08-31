@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,6 +20,12 @@ interface StreamerHeroProps {
   youtubeUrl: string | null;
   featuredClips: Video[];
 }
+
+// Matches the transition-duration used on the embed block's className
+// below — the setTimeout that actually removes it from the DOM has to
+// agree with how long the CSS fade-out takes, or it'd either flash
+// (removed too early) or leave a dead pause (removed too late).
+const FADE_MS = 200;
 
 // One client component owns both the compact clip list (constrained
 // to the right column, ~420px) AND the full-width embed area below
@@ -47,6 +53,31 @@ export function StreamerHero({
   function toggle(id: string) {
     setPlayingId((current) => (current === id ? null : id));
   }
+
+  // Fade in/out without a library: conditionally rendering
+  // {playingClip && <Card>...} unmounts the instant playingClip
+  // becomes null — before any CSS transition can play, since React
+  // removes the DOM node immediately rather than waiting on it. So
+  // "which clip is actually in the DOM" (mountedClip) is tracked
+  // separately from "should it be visible right now" (faded) — closing
+  // flips faded to false first (starts the CSS opacity transition),
+  // then a timeout matching that same duration clears mountedClip
+  // (finishes the unmount, leaving no empty box behind). Opening does
+  // the reverse: mount first, then flip to visible on the next paint
+  // so the browser actually has an opacity:0 state to transition from.
+  const [mountedClip, setMountedClip] = useState<typeof playingClip>(undefined);
+  const [faded, setFaded] = useState(false);
+
+  useEffect(() => {
+    if (playingClip) {
+      setMountedClip(playingClip);
+      const raf = requestAnimationFrame(() => setFaded(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setFaded(false);
+    const timeout = setTimeout(() => setMountedClip(undefined), FADE_MS);
+    return () => clearTimeout(timeout);
+  }, [playingClip]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -182,13 +213,18 @@ export function StreamerHero({
           inside the narrow column, not inline in a compact row), at
           the same size/component Top daily clips uses — TwitchEmbed
           inside a full-width Card, unchanged from that page.
-          Requirement 2/"no empty box": onClose sets playingId back to
-          null, which makes playingClip undefined again — this whole
-          block simply stops rendering, not an empty leftover
-          container. */}
-      {playingClip && (
-        <Card className="overflow-hidden">
-          <TwitchEmbed slug={playingClip.twitch_clip_slug!} onClose={() => setPlayingId(null)} />
+          Requirement 3: fades in on open, fades out on close (via
+          either the re-click toggle above or the X button inside
+          TwitchEmbed), and never leaves an empty box afterward — see
+          the mountedClip/faded state and comment above. */}
+      {mountedClip && (
+        <Card
+          className={cn(
+            "overflow-hidden transition-opacity duration-200",
+            faded ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <TwitchEmbed slug={mountedClip.twitch_clip_slug!} onClose={() => setPlayingId(null)} />
         </Card>
       )}
     </div>

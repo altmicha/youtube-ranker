@@ -138,7 +138,7 @@ export default async function HomePage() {
               <Link
                 key={streamer.id}
                 href={`/streamer/${streamer.slug}`}
-                className="block w-36 no-underline rounded-2xl p-2"
+                className="block w-36 rounded-2xl p-2 no-underline transition-transform duration-200 ease-out hover:-translate-y-1 hover:shadow-lg"
                 style={streamer.is_live ? { border: "2px solid #ef4444" } : { border: "2px solid transparent" }}
               >
                 <div className="relative h-48 w-full overflow-hidden rounded-md bg-muted">
@@ -159,7 +159,7 @@ export default async function HomePage() {
                 </div>
                 {streamer.is_live && (
                   <div className="mt-1 flex items-center justify-between">
-                    <span className="text-[10px] font-bold" style={{ color: "#ef4444" }}>
+                    <span className="text-[10px] font-bold text-red-500 animate-pulse" style={{ color: "#ef4444" }}>
                       LIVE
                     </span>
                     {streamer.viewer_count != null && (
