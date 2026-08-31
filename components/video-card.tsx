@@ -13,6 +13,7 @@ export function VideoCard({
   video,
   categoryName,
   action,
+  showSubmissionCount = true,
 }: {
   video: Video;
   // Passed explicitly rather than read off `video` — the ranked-list
@@ -23,6 +24,12 @@ export function VideoCard({
   // never categorized) — shown as "Uncategorized".
   categoryName?: string | null;
   action: React.ReactNode;
+  // Defaults to true, preserving existing behavior everywhere this
+  // component is already used (/videos, /creator, etc). Only the
+  // official-category path on /youtube/[slug] and /twitch/[slug]
+  // passes false — official categories no longer show the "N subs"
+  // tracker, while queue categories (and every other page) keep it.
+  showSubmissionCount?: boolean;
 }) {
   const { playingId, toggle } = useVideoPlayer();
   const isPlaying = playingId === video.id;
@@ -101,10 +108,12 @@ export function VideoCard({
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                 {categoryName ?? "Uncategorized"}
               </Badge>
-              <Badge variant="muted" className="px-1.5 py-0 font-mono text-[10px]">
-                {video.submission_count}{" "}
-                {video.submission_count === 1 ? "sub" : "subs"}
-              </Badge>
+              {showSubmissionCount && (
+                <Badge variant="muted" className="px-1.5 py-0 font-mono text-[10px]">
+                  {video.submission_count}{" "}
+                  {video.submission_count === 1 ? "sub" : "subs"}
+                </Badge>
+              )}
               <Badge variant="muted" className="px-1.5 py-0 font-mono text-[10px]">
                 {video.vote_count} {video.vote_count === 1 ? "vote" : "votes"}
               </Badge>

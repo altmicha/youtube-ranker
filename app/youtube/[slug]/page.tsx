@@ -5,12 +5,13 @@ import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
+import { SortFilter } from "@/components/sort-filter";
 import { LoadMoreLink, PAGE_SIZE } from "@/components/load-more-link";
 import { SubmitVideoForm } from "@/components/submit-video-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
-import { rankVideosByWindow } from "@/lib/rank-videos";
+import { filterVideosByTimeWindow, parseSortParam, sortVideos, sortOrderColumn } from "@/lib/rank-videos";
 import type { CategoryKind } from "@/lib/types/database.types";
 
 export default async function YoutubeCategoryPage({
@@ -18,7 +19,7 @@ export default async function YoutubeCategoryPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ range?: string; take?: string; kind?: string }>;
+  searchParams: Promise<{ range?: string; take?: string; kind?: string; sort?: string }>;
 }) {
   const { slug } = await params;
   const supabase = await createClient();
@@ -62,6 +63,14 @@ export default async function YoutubeCategoryPage({
   const range = parseTimeRange(sp.range);
   const since = timeRangeSince(range);
 
+  // Requirement: sort filters (views/date/votes, either direction),
+  // in addition to the existing time range filter — the two combine:
+  // the time range decides which videos qualify, sort decides their
+  // order within that set. Default (no ?sort=) is submissions
+  // descending, same ranking behavior as before this feature existed
+  // for both official and queue categories.
+  const { field: sortField, direction: sortDirection } = parseSortParam(sp.sort);
+
   // Requirement 4: 30 per load, more on demand via ?take=. Clamped so
   // a hand-edited URL can't request something absurd.
   const requestedTake = parseInt(sp.take ?? "", 10);
@@ -77,7 +86,7 @@ export default async function YoutubeCategoryPage({
     .eq("source", "youtube")
     .eq("category", slug)
     .eq("is_removed", false)
-    .order("submission_count", { ascending: false })
+    .order(sortOrderColumn(sortField), { ascending: sortDirection === "asc", nullsFirst: false })
     .limit(take);
 
   if (videosError) {
@@ -91,7 +100,8 @@ export default async function YoutubeCategoryPage({
   // A full page back means there may be more beyond this cutoff.
   const hasMore = (baseVideos?.length ?? 0) === take;
 
-  const videos = await rankVideosByWindow(supabase, baseVideos ?? [], since);
+  const windowedVideos = await filterVideosByTimeWindow(supabase, baseVideos ?? [], since);
+  const videos = sortVideos(windowedVideos, sortField, sortDirection);
 
   let upvotedVideoIds = new Set<string>();
   if (profile && videos.length > 0) {
@@ -120,7 +130,11 @@ export default async function YoutubeCategoryPage({
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category.name}
           </h1>
-          <TimeRangeFilter basePath="/youtube" categorySlug={slug} active={range} kind={kind} />
+          <TimeRangeFilter basePath="/youtube" categorySlug={slug} active={range} kind={kind} sort={sp.sort} />
+        </div>
+
+        <div className="mt-2">
+          <SortFilter basePath="/youtube" categorySlug={slug} range={range} kind={kind} active={sp.sort} />
         </div>
 
         <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -155,6 +169,9 @@ export default async function YoutubeCategoryPage({
               key={video.id}
               video={video}
               categoryName={category.name}
+              // Requirement: official categories don't show the
+              // submission tracker; queue categories keep it.
+              showSubmissionCount={category.kind === "queue"}
               action={
                 <UpvoteButton
                   videoId={video.id}
@@ -175,7 +192,7 @@ export default async function YoutubeCategoryPage({
           </Card>
         )}
         <LoadMoreLink
-          href={`/youtube/${slug}?range=${range}&take=${take + PAGE_SIZE}${kind === "queue" ? "&kind=queue" : ""}`}
+          href={`/youtube/${slug}?range=${range}&take=${take + PAGE_SIZE}${sp.sort ? `&sort=${sp.sort}` : ""}${kind === "queue" ? "&kind=queue" : ""}`}
           hasMore={hasMore}
         />
       </div>

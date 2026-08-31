@@ -8,6 +8,7 @@ export function TimeRangeFilter({
   categorySlug,
   active,
   kind,
+  sort,
 }: {
   // e.g. "/youtube" or "/twitch" — links become `${basePath}/${categorySlug}?range=...`.
   basePath: string;
@@ -19,15 +20,20 @@ export function TimeRangeFilter({
   // see add_category_kind.sql). Omitted for "official" (the default)
   // so official category URLs stay exactly as they always looked.
   kind: CategoryKind;
+  // Raw ?sort= value (e.g. "views_desc"), carried through so changing
+  // the time range doesn't silently reset a chosen sort back to the
+  // default. Omitted from the link when it's the default (undefined).
+  sort?: string;
 }) {
   const kindParam = kind === "queue" ? "&kind=queue" : "";
+  const sortParam = sort ? `&sort=${sort}` : "";
 
   return (
     <div className="flex flex-wrap gap-1.5">
       {TIME_RANGES.map((range) => (
         <Link
           key={range}
-          href={`${basePath}/${categorySlug}?range=${range}${kindParam}`}
+          href={`${basePath}/${categorySlug}?range=${range}${sortParam}${kindParam}`}
           className={cn(
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
             range === active

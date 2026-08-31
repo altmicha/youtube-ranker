@@ -5,12 +5,13 @@ import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
+import { SortFilter } from "@/components/sort-filter";
 import { LoadMoreLink, PAGE_SIZE } from "@/components/load-more-link";
 import { SubmitVideoForm } from "@/components/submit-video-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
-import { rankVideosByWindow } from "@/lib/rank-videos";
+import { filterVideosByTimeWindow, parseSortParam, sortVideos, sortOrderColumn } from "@/lib/rank-videos";
 import type { CategoryKind } from "@/lib/types/database.types";
 
 export default async function TwitchCategoryPage({
@@ -18,7 +19,7 @@ export default async function TwitchCategoryPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ range?: string; take?: string; kind?: string }>;
+  searchParams: Promise<{ range?: string; take?: string; kind?: string; sort?: string }>;
 }) {
   const { slug } = await params;
   const supabase = await createClient();
@@ -60,6 +61,11 @@ export default async function TwitchCategoryPage({
   const range = parseTimeRange(sp.range);
   const since = timeRangeSince(range);
 
+  // Requirement: sort filters (views/date/votes, either direction),
+  // in addition to the existing time range filter. Default (no
+  // ?sort=) is submissions descending, unchanged from before.
+  const { field: sortField, direction: sortDirection } = parseSortParam(sp.sort);
+
   const requestedTake = parseInt(sp.take ?? "", 10);
   const take = Number.isFinite(requestedTake) && requestedTake > PAGE_SIZE
     ? Math.min(requestedTake, 500)
@@ -73,7 +79,7 @@ export default async function TwitchCategoryPage({
     .eq("source", "twitch")
     .eq("category", slug)
     .eq("is_removed", false)
-    .order("submission_count", { ascending: false })
+    .order(sortOrderColumn(sortField), { ascending: sortDirection === "asc", nullsFirst: false })
     .limit(take);
 
   if (videosError) {
@@ -86,7 +92,8 @@ export default async function TwitchCategoryPage({
 
   const hasMore = (baseVideos?.length ?? 0) === take;
 
-  const videos = await rankVideosByWindow(supabase, baseVideos ?? [], since);
+  const windowedVideos = await filterVideosByTimeWindow(supabase, baseVideos ?? [], since);
+  const videos = sortVideos(windowedVideos, sortField, sortDirection);
 
   let upvotedVideoIds = new Set<string>();
   if (profile && videos.length > 0) {
@@ -115,7 +122,11 @@ export default async function TwitchCategoryPage({
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category.name}
           </h1>
-          <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} kind={kind} />
+          <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} kind={kind} sort={sp.sort} />
+        </div>
+
+        <div className="mt-2">
+          <SortFilter basePath="/twitch" categorySlug={slug} range={range} kind={kind} active={sp.sort} />
         </div>
 
         <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -143,6 +154,9 @@ export default async function TwitchCategoryPage({
               key={video.id}
               video={video}
               categoryName={category.name}
+              // Requirement: official categories don't show the
+              // submission tracker; queue categories keep it.
+              showSubmissionCount={category.kind === "queue"}
               action={
                 <UpvoteButton
                   videoId={video.id}
@@ -163,7 +177,7 @@ export default async function TwitchCategoryPage({
           </Card>
         )}
         <LoadMoreLink
-          href={`/twitch/${slug}?range=${range}&take=${take + PAGE_SIZE}${kind === "queue" ? "&kind=queue" : ""}`}
+          href={`/twitch/${slug}?range=${range}&take=${take + PAGE_SIZE}${sp.sort ? `&sort=${sp.sort}` : ""}${kind === "queue" ? "&kind=queue" : ""}`}
           hasMore={hasMore}
         />
       </div>
