@@ -37,7 +37,8 @@ export type StreamerActionResult = { error: string } | { success: true; streamer
 export async function createStreamer(
   name: string,
   slug: string,
-  bio: string
+  bio: string,
+  twitchLogin: string
 ): Promise<StreamerActionResult> {
   const check = await requireCreatorProfile();
   if ("error" in check) return check;
@@ -65,6 +66,10 @@ export async function createStreamer(
       display_name: trimmedName,
       slug: normalizedSlug,
       bio: bio.trim() || null,
+      // Twitch usernames are lowercase-normalized on their end too;
+      // stored lowercase here so it matches what
+      // lib/twitch.ts's fetchTwitchLiveStatuses() looks up by.
+      twitch_login: twitchLogin.trim() ? twitchLogin.trim().toLowerCase() : null,
     })
     .select()
     .single();
@@ -101,7 +106,8 @@ export async function updateStreamer(
   streamerId: string,
   slug: string,
   name: string,
-  bio: string
+  bio: string,
+  twitchLogin: string
 ): Promise<SimpleActionResult> {
   const check = await requireCreatorProfile();
   if ("error" in check) return check;
@@ -114,7 +120,11 @@ export async function updateStreamer(
   const supabase = await createClient();
   const { error } = await supabase
     .from("streamers")
-    .update({ display_name: trimmedName, bio: bio.trim() || null })
+    .update({
+      display_name: trimmedName,
+      bio: bio.trim() || null,
+      twitch_login: twitchLogin.trim() ? twitchLogin.trim().toLowerCase() : null,
+    })
     .eq("id", streamerId);
 
   if (error) {

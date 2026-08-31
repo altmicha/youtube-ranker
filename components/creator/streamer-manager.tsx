@@ -21,10 +21,12 @@ function StreamerRow({
 }) {
   const [currentName, setCurrentName] = useState(streamer.display_name);
   const [currentBio, setCurrentBio] = useState(streamer.bio ?? "");
+  const [currentTwitchLogin, setCurrentTwitchLogin] = useState(streamer.twitch_login ?? "");
   const [currentCoverPath, setCurrentCoverPath] = useState(streamer.cover_path);
   const [isEditing, setIsEditing] = useState(false);
   const [draftName, setDraftName] = useState(streamer.display_name);
   const [draftBio, setDraftBio] = useState(streamer.bio ?? "");
+  const [draftTwitchLogin, setDraftTwitchLogin] = useState(streamer.twitch_login ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -39,13 +41,14 @@ function StreamerRow({
     }
     setMessage(null);
     startTransition(async () => {
-      const result = await updateStreamer(streamer.id, streamer.slug, trimmed, draftBio);
+      const result = await updateStreamer(streamer.id, streamer.slug, trimmed, draftBio, draftTwitchLogin);
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
       } else {
         setCurrentName(trimmed);
         setCurrentBio(draftBio.trim());
+        setCurrentTwitchLogin(draftTwitchLogin.trim().toLowerCase());
         setIsError(false);
         setMessage(null);
         setIsEditing(false);
@@ -133,6 +136,13 @@ function StreamerRow({
               className="h-8 max-w-[320px] text-sm"
               disabled={isPending}
             />
+            <Input
+              value={draftTwitchLogin}
+              onChange={(e) => setDraftTwitchLogin(e.target.value)}
+              placeholder="Twitch username (optional, for live status)"
+              className="h-8 max-w-[320px] text-sm"
+              disabled={isPending}
+            />
             <div className="flex gap-1.5">
               <Button size="sm" onClick={handleSave} disabled={isPending}>
                 Save
@@ -144,6 +154,7 @@ function StreamerRow({
                   setIsEditing(false);
                   setDraftName(currentName);
                   setDraftBio(currentBio);
+                  setDraftTwitchLogin(currentTwitchLogin);
                 }}
                 disabled={isPending}
               >
@@ -154,7 +165,10 @@ function StreamerRow({
         ) : (
           <>
             <p className="truncate text-sm font-medium">{currentName}</p>
-            <p className="truncate text-xs text-muted-foreground">/{streamer.slug}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              /{streamer.slug}
+              {currentTwitchLogin && ` · twitch.tv/${currentTwitchLogin}`}
+            </p>
             {currentBio && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{currentBio}</p>}
           </>
         )}
@@ -174,6 +188,7 @@ function StreamerRow({
             onClick={() => {
               setDraftName(currentName);
               setDraftBio(currentBio);
+              setDraftTwitchLogin(currentTwitchLogin);
               setIsEditing(true);
             }}
             disabled={isPending}
@@ -230,6 +245,7 @@ export function StreamerManager({
   const [newName, setNewName] = useState("");
   const [newSlug, setNewSlug] = useState("");
   const [newBio, setNewBio] = useState("");
+  const [newTwitchLogin, setNewTwitchLogin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -252,7 +268,7 @@ export function StreamerManager({
     }
 
     startTransition(async () => {
-      const result = await createStreamer(newName.trim(), newSlug.trim(), newBio);
+      const result = await createStreamer(newName.trim(), newSlug.trim(), newBio, newTwitchLogin);
       if ("error" in result) {
         setError(result.error);
       } else {
@@ -262,6 +278,7 @@ export function StreamerManager({
         setNewName("");
         setNewSlug("");
         setNewBio("");
+        setNewTwitchLogin("");
       }
     });
   }
@@ -302,6 +319,13 @@ export function StreamerManager({
           value={newBio}
           onChange={(e) => setNewBio(e.target.value)}
           placeholder="Bio (optional)"
+          disabled={isPending}
+          className="h-9 flex-1"
+        />
+        <Input
+          value={newTwitchLogin}
+          onChange={(e) => setNewTwitchLogin(e.target.value)}
+          placeholder="Twitch username (optional, for live status)"
           disabled={isPending}
           className="h-9 flex-1"
         />

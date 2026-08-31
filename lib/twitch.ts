@@ -32,6 +32,83 @@ export function extractTwitchClipSlug(rawUrl: string): string | null {
   return null;
 }
 
+export interface TwitchLiveStatus {
+  isLive: boolean;
+  viewerCount: number | null;
+}
+
+/**
+ * Checks live status + concurrent viewer count for up to 100 Twitch
+ * logins in a single Helix Get Streams call (offline channels simply
+ * don't appear in the response — there's no per-channel "offline"
+ * result to parse, so anything requested but not returned is offline).
+ * Returns a map keyed by lowercased login, since Twitch logins are
+ * case-insensitive but display casing can vary at input time.
+ *
+ * Server-only, same credentials/token-cache contract as
+ * fetchTwitchClipMetadata() above. Returns an empty map on any
+ * failure (missing credentials, network error, API error) rather than
+ * throwing — a failed live check should never break the page that
+ * called it.
+ */
+export async function fetchTwitchLiveStatuses(
+  logins: string[]
+): Promise<Map<string, TwitchLiveStatus>> {
+  const result = new Map<string, TwitchLiveStatus>();
+  if (logins.length === 0) return result;
+
+  const clientId = process.env.TWITCH_CLIENT_ID;
+  if (!clientId) return result;
+
+  const token = await getTwitchAppAccessToken();
+  if (!token) return result;
+
+  // Helix caps user_login at 100 per request.
+  const capped = logins.slice(0, 100);
+
+  const url = new URL("https://api.twitch.tv/helix/streams");
+  capped.forEach((login) => url.searchParams.append("user_login", login));
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: {
+        "Client-Id": clientId,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      console.error(`Twitch Helix streams error: ${res.status} ${res.statusText}`);
+      return result;
+    }
+
+    const data = await res.json();
+    const liveLogins = new Set<string>();
+
+    for (const stream of data?.data ?? []) {
+      const login = typeof stream.user_login === "string" ? stream.user_login.toLowerCase() : null;
+      if (!login) continue;
+      liveLogins.add(login);
+      result.set(login, {
+        isLive: true,
+        viewerCount: typeof stream.viewer_count === "number" ? stream.viewer_count : null,
+      });
+    }
+
+    for (const login of capped) {
+      const key = login.toLowerCase();
+      if (!liveLogins.has(key)) {
+        result.set(key, { isLive: false, viewerCount: null });
+      }
+    }
+
+    return result;
+  } catch (err) {
+    console.error("Twitch streams fetch failed:", err);
+    return result;
+  }
+}
+
 export interface TwitchClipMetadata {
   title: string | null;
   thumbnailUrl: string | null;

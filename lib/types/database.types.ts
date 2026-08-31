@@ -44,6 +44,17 @@ export interface Streamer {
   // pattern as Category.image_path, just a separate bucket so the
   // existing category image upload flow is untouched.
   cover_path: string | null;
+  // Twitch username (not display name) used to check live status via
+  // Helix Get Streams — see lib/twitch.ts's fetchTwitchLiveStatuses()
+  // and lib/twitch-live.ts. Nullable; only streamers with this set
+  // ever get checked. Added by add_twitch_login.sql if missing.
+  twitch_login: string | null;
+  // Live status + concurrent viewer count, read directly from the
+  // table on every homepage render (fast, no external call) and kept
+  // fresh by a background Twitch check scheduled via next/server's
+  // after() in app/page.tsx — never blocking the initial render.
+  is_live: boolean | null;
+  viewer_count: number | null;
   created_at: string;
 }
 

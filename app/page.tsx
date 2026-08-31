@@ -1,20 +1,11 @@
+import { after } from "next/server";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Streamer } from "@/lib/types/database.types";
 import { streamerCoverUrl } from "@/lib/streamer-image";
-
-// Locally extends the shared Streamer type (from
-// lib/types/database.types.ts, not modified here) with one field
-// this page needs that isn't declared there yet: is_live. Kept local
-// rather than editing the shared file, per "change only app/page.tsx"
-// — select("*") below is resilient to it not actually existing under
-// this name (it'd just come back undefined, and the live badge
-// simply never shows).
-type DirectoryStreamer = Streamer & {
-  is_live?: boolean | null;
-};
+import { formatCount } from "@/lib/format";
+import { refreshTwitchLiveStatuses } from "@/lib/twitch-live";
 
 // The creator's image upload (app/actions/streamers.ts,
 // uploadStreamerCoverImage) always writes a bare Storage object path
@@ -24,7 +15,7 @@ type DirectoryStreamer = Streamer & {
 // is checked as a fallback in case it's ever set directly: used as-is
 // if it's already a full URL, otherwise also treated as a bare
 // Storage path.
-function resolveStreamerImage(streamer: DirectoryStreamer): string | null {
+function resolveStreamerImage(streamer: { cover_path: string | null; avatar_url: string | null }): string | null {
   if (streamer.cover_path) {
     return streamerCoverUrl(streamer.cover_path);
   }
@@ -44,7 +35,27 @@ export default async function HomePage() {
     .select("*")
     .order("display_name");
 
-  const list = (streamers ?? []) as DirectoryStreamer[];
+  const list = streamers ?? [];
+
+  // Do not block the homepage on the live check: this schedules the
+  // Twitch refresh to run AFTER the response has already been sent
+  // (next/server's after()), so first render always uses whatever
+  // is_live/viewer_count are already sitting in the table. The
+  // refresh itself skips any streamer checked in the last 60s — see
+  // lib/twitch-live.ts.
+  const streamersWithTwitchLogin = list
+    .filter((s): s is typeof s & { twitch_login: string } => !!s.twitch_login)
+    .map((s) => ({ id: s.id, twitch_login: s.twitch_login }));
+
+  if (streamersWithTwitchLogin.length > 0) {
+    after(() => refreshTwitchLiveStatuses(streamersWithTwitchLogin));
+  }
+
+  // YouTube live isn't checked — there's no existing YouTube live
+  // status integration in this app to wire this into (fetchYoutubeMetadata()
+  // only ever fetches video stats, never channel live status), so
+  // streamers.is_live/viewer_count for a youtube_channel_id-only
+  // streamer are left exactly as whatever's already in the table.
 
   return (
     <div className="flex flex-col gap-6">
@@ -92,6 +103,7 @@ export default async function HomePage() {
                   {streamer.is_live && (
                     <Badge className="absolute left-1.5 top-1.5 border-transparent bg-red-600 px-1.5 py-0 text-[10px] text-white">
                       LIVE
+                      {streamer.viewer_count != null && ` · ${formatCount(streamer.viewer_count)}`}
                     </Badge>
                   )}
                 </div>
