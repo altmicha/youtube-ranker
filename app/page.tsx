@@ -6,6 +6,14 @@ import { streamerCoverUrl } from "@/lib/streamer-image";
 import { formatCount } from "@/lib/format";
 import { refreshTwitchLiveStatuses } from "@/lib/twitch-live";
 
+// Requirement: do not cache the homepage — live badges need to
+// reflect the current state on every load, not a cached render from
+// whenever a streamer last happened to go live. force-dynamic also
+// rules out this page being eligible for static generation, which
+// export const revalidate alone wouldn't fully guarantee.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // The creator's image upload (app/actions/streamers.ts,
 // uploadStreamerCoverImage) always writes a bare Storage object path
 // into cover_path — never a full URL — so that's checked first and
@@ -26,15 +34,39 @@ function resolveStreamerImage(streamer: { cover_path: string | null; avatar_url:
   return null;
 }
 
+async function fetchStreamers(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const { data, error } = await supabase.from("streamers").select("*").order("display_name");
+  if (error) throw error;
+  return data ?? [];
+}
+
 export default async function HomePage() {
   const supabase = await createClient();
 
-  const { data: streamers } = await supabase
-    .from("streamers")
-    .select("*")
-    .order("display_name");
-
-  const list = streamers ?? [];
+  // Requirement 1/2: this page never calls getUser(), getSession(), or
+  // refreshSession() anywhere, directly or indirectly — the query
+  // below is a plain public select (streamers are publicly readable),
+  // nothing here depends on who's viewing or their session state.
+  //
+  // Requirement 5: still wrapped defensively — if the visitor has a
+  // stale/invalid session cookie, Supabase's client machinery can
+  // itself surface an "Invalid Refresh Token: Refresh Token Not
+  // Found" auth error as a side effect of preparing ANY request,
+  // even one that never explicitly asks for the session. That error
+  // has nothing to do with whether streamers/live badges can be
+  // shown, so it's logged and ignored here rather than allowed to
+  // affect this page at all.
+  let list: Awaited<ReturnType<typeof fetchStreamers>> = [];
+  try {
+    list = await fetchStreamers(supabase);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/refresh token/i.test(message)) {
+      console.warn("HomePage: ignoring unrelated auth/refresh-token error", message);
+    } else {
+      console.error("HomePage: streamers query failed", err);
+    }
+  }
 
   // Do not block the homepage on the live check: this schedules the
   // Twitch refresh to run AFTER the response has already been sent
@@ -42,6 +74,12 @@ export default async function HomePage() {
   // is_live/viewer_count are already sitting in the table. The
   // refresh itself skips any streamer checked in the last 60s — see
   // lib/twitch-live.ts.
+  // Requirement: platform may be "both" (or null, or "youtube") on a
+  // streamer that still has a twitch_login set — platform is vestigial
+  // now (a streamer isn't tied to one platform; see
+  // make_streamer_platform_optional.sql) and is never checked here.
+  // The only thing that determines whether a streamer's live status
+  // gets checked is whether twitch_login is set, full stop.
   const streamersWithTwitchLogin = list
     .filter((s): s is typeof s & { twitch_login: string } => !!s.twitch_login)
     .map((s) => ({ id: s.id, twitch_login: s.twitch_login }));

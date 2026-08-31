@@ -75,6 +75,15 @@ export async function fetchTwitchLiveStatuses(
         "Client-Id": clientId,
         Authorization: `Bearer ${token}`,
       },
+      // Requirement: never cache this — Next.js's server-side fetch()
+      // caches GET requests by default unless told not to, which was
+      // the actual bug: the first Get Streams call could get cached
+      // indefinitely, so every later "fresh" check silently kept
+      // returning that same stale (once-live) response instead of
+      // hitting Twitch again, regardless of the 60s cooldown logic in
+      // lib/twitch-live.ts working correctly on its own.
+      cache: "no-store",
+      next: { revalidate: 0 },
     });
 
     if (!res.ok) {
@@ -140,6 +149,8 @@ export async function fetchTwitchBroadcasterId(login: string): Promise<string | 
   try {
     const res = await fetch(url.toString(), {
       headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` },
+      cache: "no-store",
+      next: { revalidate: 0 },
     });
     if (!res.ok) {
       console.error(`Twitch Helix users error: ${res.status} ${res.statusText}`);
@@ -183,6 +194,8 @@ export async function fetchTopTwitchClipsLast24h(
   try {
     const res = await fetch(url.toString(), {
       headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` },
+      cache: "no-store",
+      next: { revalidate: 0 },
     });
     if (!res.ok) {
       console.error(`Twitch Helix clips error: ${res.status} ${res.statusText}`);
@@ -248,6 +261,7 @@ async function getTwitchAppAccessToken(): Promise<string | null> {
         client_secret: clientSecret,
         grant_type: "client_credentials",
       }),
+      cache: "no-store",
     });
 
     if (!res.ok) {
@@ -301,6 +315,8 @@ export async function fetchTwitchClipMetadata(
         "Client-Id": clientId,
         Authorization: `Bearer ${token}`,
       },
+      cache: "no-store",
+      next: { revalidate: 0 },
     });
 
     if (!res.ok) {

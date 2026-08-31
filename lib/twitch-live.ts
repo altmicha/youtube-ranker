@@ -20,46 +20,82 @@ const lastCheckedAt = new Map<string, number>();
  * RLS, so it deliberately bypasses RLS here rather than requiring the
  * visitor to be a creator.
  *
- * Meant to be called via next/server's after() from app/page.tsx, so
- * it never blocks that page's response — errors here are logged, not
- * thrown, since by the time this runs the response is already sent.
+ * Requirement 1/2: fetchTwitchLiveStatuses() (lib/twitch.ts) only ever
+ * uses TWITCH_CLIENT_ID/TWITCH_CLIENT_SECRET — nothing in this
+ * function or that one calls supabase.auth.getUser()/getSession()/
+ * refreshSession(), so a visitor's Supabase session state (valid,
+ * missing, or a stale/invalid refresh token) can't affect whether the
+ * Twitch check itself runs.
+ *
+ * Requirement 3: createAdminClient() is a plain @supabase/supabase-js
+ * client constructed from the service-role key — it never reads
+ * cookies and never touches the visitor's session at all (see
+ * lib/supabase/server.ts). It's used for every write below instead of
+ * the cookie-bound request client for exactly that reason.
+ *
+ * Requirement 5: wrapped in try/catch so that if anything unexpected
+ * throws here (this runs inside next/server's after(), where an
+ * uncaught rejection would otherwise surface as an unhandled
+ * rejection in server logs with no connection to what the visitor
+ * actually saw) — including, defensively, an auth-shaped error that
+ * has no business being here at all — it's logged and swallowed
+ * rather than propagating anywhere.
  */
 export async function refreshTwitchLiveStatuses(
   streamers: { id: string; twitch_login: string }[]
 ): Promise<void> {
-  const now = Date.now();
-  const due = streamers.filter((s) => {
-    const last = lastCheckedAt.get(s.twitch_login.toLowerCase());
-    return !last || now - last > CHECK_COOLDOWN_MS;
-  });
+  try {
+    const now = Date.now();
+    const due = streamers.filter((s) => {
+      const last = lastCheckedAt.get(s.twitch_login.toLowerCase());
+      return !last || now - last > CHECK_COOLDOWN_MS;
+    });
 
-  if (due.length === 0) return;
+    if (due.length === 0) return;
 
-  const statuses = await fetchTwitchLiveStatuses(due.map((s) => s.twitch_login));
-  if (statuses.size === 0) return;
+    const statuses = await fetchTwitchLiveStatuses(due.map((s) => s.twitch_login));
+    if (statuses.size === 0) return;
 
-  const admin = createAdminClient();
+    const admin = createAdminClient();
 
-  await Promise.all(
-    due.map(async (streamer) => {
-      const key = streamer.twitch_login.toLowerCase();
-      lastCheckedAt.set(key, now);
+    await Promise.all(
+      due.map(async (streamer) => {
+        const key = streamer.twitch_login.toLowerCase();
+        lastCheckedAt.set(key, now);
 
-      const status = statuses.get(key);
-      if (!status) return; // fetchTwitchLiveStatuses failed entirely — leave existing DB values alone
+        const status = statuses.get(key);
+        if (!status) return; // fetchTwitchLiveStatuses failed entirely — leave existing DB values alone
 
-      const { error } = await admin
-        .from("streamers")
-        .update({ is_live: status.isLive, viewer_count: status.viewerCount })
-        .eq("id", streamer.id);
+        // Requirement 4: offline is always is_live = false AND
+        // viewer_count = 0 (not null) — a streamer that's offline has
+        // zero current viewers, which is a real, known value, not an
+        // absence of data.
+        const { error } = await admin
+          .from("streamers")
+          .update({
+            is_live: status.isLive,
+            viewer_count: status.isLive ? status.viewerCount : 0,
+          })
+          .eq("id", streamer.id);
 
-      if (error) {
-        console.error("refreshTwitchLiveStatuses: update failed", {
-          streamerId: streamer.id,
-          code: error.code,
-          message: error.message,
-        });
-      }
-    })
-  );
+        if (error) {
+          console.error("refreshTwitchLiveStatuses: update failed", {
+            streamerId: streamer.id,
+            code: error.code,
+            message: error.message,
+          });
+        }
+      })
+    );
+  } catch (err) {
+    // Requirement 5: specifically call out an auth/refresh-token-shaped
+    // error if that's what this is, but log and continue either way —
+    // this must never take the homepage down with it.
+    const message = err instanceof Error ? err.message : String(err);
+    if (/refresh token/i.test(message)) {
+      console.warn("refreshTwitchLiveStatuses: ignoring unrelated auth/refresh-token error", message);
+    } else {
+      console.error("refreshTwitchLiveStatuses: unexpected error", err);
+    }
+  }
 }
