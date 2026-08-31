@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get("next") ?? "/";
 
   if (!code) {
-    return NextResponse.redirect(`${origin}/login?error=Could not sign in`);
+    return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
   // Built before the exchange runs, so setAll() below always has a
@@ -57,7 +57,12 @@ export async function GET(request: NextRequest) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    return NextResponse.redirect(`${origin}/login?error=Could not sign in`);
+    console.error("auth/callback: exchangeCodeForSession failed", {
+      code: error.code,
+      message: error.message,
+      status: error.status,
+    });
+    return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
   // The session cookies exchangeCodeForSession() triggered are

@@ -5,12 +5,21 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
+// app/auth/callback/route.ts redirects here with a short ?error= code
+// (e.g. "auth") rather than a human-readable message — this maps
+// known codes to actual text; anything unrecognized (including the
+// free-text messages other flows already redirect with) is shown as-is.
+const ERROR_MESSAGES: Record<string, string> = {
+  auth: "Could not sign in. Please try again.",
+};
+
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; message?: string }>;
 }) {
   const params = await searchParams;
+  const errorMessage = params.error ? ERROR_MESSAGES[params.error] ?? params.error : null;
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center">
@@ -26,9 +35,9 @@ export default async function LoginPage({
         </CardHeader>
 
         <CardContent className="flex flex-col gap-4">
-          {params.error && (
+          {errorMessage && (
             <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {params.error}
+              {errorMessage}
             </p>
           )}
           {params.message && (
