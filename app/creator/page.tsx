@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { requireCreatorOrStreamer } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 import { AwardPointsButton } from "@/components/award-points-button";
@@ -7,6 +8,7 @@ import { StreamerAndCategorySection } from "@/components/creator/streamer-and-ca
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
+import { refreshTopDailyClips } from "@/lib/top-daily-clips-refresh";
 
 export default async function CreatorDashboardPage() {
   // Access gate: redirects to /login if signed out, or / if the
@@ -60,6 +62,20 @@ export default async function CreatorDashboardPage() {
       c.name,
     ])
   );
+
+  // Requirement: refresh Top daily clips when a creator opens
+  // /creator (the "if the hourly job isn't possible" fallback) — for
+  // every streamer with a twitch_login, not just the one whose
+  // category page happens to be open. Scheduled via after() so this
+  // page never waits on Twitch; refreshTopDailyClips() itself caps
+  // each streamer to once per hour.
+  const streamersWithTwitchLogin = (streamers ?? [])
+    .filter((s): s is typeof s & { twitch_login: string } => !!s.twitch_login)
+    .map((s) => ({ id: s.id, slug: s.slug, twitch_login: s.twitch_login }));
+
+  if (streamersWithTwitchLogin.length > 0) {
+    after(() => refreshTopDailyClips(streamersWithTwitchLogin));
+  }
 
   return (
     <div className="flex flex-col gap-8">

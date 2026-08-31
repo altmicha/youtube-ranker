@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/roles";
 import { categorySlug } from "@/lib/categories";
+import { ensureTopDailyClipsCategory } from "@/lib/top-daily-clips";
 import type { Streamer } from "@/lib/types/database.types";
 
 // Same creator-only gate as app/actions/categories.ts. Fast, friendly
@@ -97,6 +98,19 @@ export async function createStreamer(
   }
 
   revalidateStreamerPages(normalizedSlug);
+
+  // Requirement: new streamers with twitch_login must automatically
+  // get their "Top daily clips" category — created here immediately
+  // (creator's own session already has permission for this, being an
+  // official category), rather than waiting for the first background
+  // refresh. The clips themselves still only show up once a refresh
+  // actually runs (creator opening /creator, or that category's own
+  // page loading) — this just makes sure the category (and therefore
+  // its URL) exists right away instead of only after the first clip.
+  if (data.twitch_login) {
+    await ensureTopDailyClipsCategory(supabase, { id: data.id, slug: data.slug });
+  }
+
   return { success: true, streamer: data };
 }
 
@@ -143,6 +157,14 @@ export async function updateStreamer(
   }
 
   revalidateStreamerPages(slug);
+
+  // Same as createStreamer(): make sure a twitch_login added here
+  // (whether newly set or already there) has its category ready.
+  const normalizedTwitchLogin = twitchLogin.trim() ? twitchLogin.trim().toLowerCase() : null;
+  if (normalizedTwitchLogin) {
+    await ensureTopDailyClipsCategory(supabase, { id: streamerId, slug });
+  }
+
   return { success: true };
 }
 

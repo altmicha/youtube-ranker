@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
 import { extractTwitchClipSlug, fetchTwitchClipMetadata } from "@/lib/twitch";
+import { isTopDailyClipsCategory } from "@/lib/top-daily-clips";
 import type { VideoSource, CategoryKind } from "@/lib/types/database.types";
 
 export type SubmitVideoResult = { error: string } | { success: true };
@@ -66,7 +67,7 @@ export async function submitVideo(
   // this submission is for, not its same-slug sibling.
   const { data: category, error: categoryError } = await supabase
     .from("categories")
-    .select("slug, platform, kind")
+    .select("slug, name, platform, kind")
     .eq("platform", platform)
     .eq("slug", categorySlug)
     .eq("kind", kind)
@@ -84,6 +85,14 @@ export async function submitVideo(
   }
   if (!category) {
     return { error: "Choose a valid category for this page." };
+  }
+
+  // Requirement: no user submission at all on the auto-populated Top
+  // daily clips category — enforced here server-side, not just by
+  // hiding the form (see app/twitch/[slug]/page.tsx), so a hand-built
+  // request can't bypass it either.
+  if (isTopDailyClipsCategory(category)) {
+    return { error: "This category is updated automatically and doesn't accept submissions." };
   }
 
   // Requirement: official categories are still creator/streamer/

@@ -109,6 +109,107 @@ export async function fetchTwitchLiveStatuses(
   }
 }
 
+export interface TwitchClipSummary {
+  // Matches the same slug format extractTwitchClipSlug() produces and
+  // fetchTwitchClipMetadata() looks up by — this is what gets stored
+  // as videos.twitch_clip_slug.
+  slug: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  broadcasterName: string | null;
+  viewCount: number;
+  createdAt: string | null;
+}
+
+/**
+ * Resolves a Twitch login (username) to that channel's broadcaster id
+ * — Helix's clips/streams-by-broadcaster endpoints need the id, not
+ * the login. Returns null on any failure or if the login doesn't
+ * exist.
+ */
+export async function fetchTwitchBroadcasterId(login: string): Promise<string | null> {
+  const clientId = process.env.TWITCH_CLIENT_ID;
+  if (!clientId) return null;
+
+  const token = await getTwitchAppAccessToken();
+  if (!token) return null;
+
+  const url = new URL("https://api.twitch.tv/helix/users");
+  url.searchParams.set("login", login);
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      console.error(`Twitch Helix users error: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const data = await res.json();
+    const id = data?.data?.[0]?.id;
+    return typeof id === "string" ? id : null;
+  } catch (err) {
+    console.error("Twitch broadcaster id fetch failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Fetches this broadcaster's clips created in the last 24 hours,
+ * returning the top `limit` by view count. Helix's Get Clips already
+ * sorts by view count descending by default; this also re-sorts
+ * defensively in case that ever changes, and caps to `limit` (10, per
+ * this feature's requirement) client-side.
+ */
+export async function fetchTopTwitchClipsLast24h(
+  broadcasterId: string,
+  limit = 10
+): Promise<TwitchClipSummary[]> {
+  const clientId = process.env.TWITCH_CLIENT_ID;
+  if (!clientId) return [];
+
+  const token = await getTwitchAppAccessToken();
+  if (!token) return [];
+
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const url = new URL("https://api.twitch.tv/helix/clips");
+  url.searchParams.set("broadcaster_id", broadcasterId);
+  url.searchParams.set("started_at", yesterday.toISOString());
+  url.searchParams.set("ended_at", now.toISOString());
+  url.searchParams.set("first", "100");
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { "Client-Id": clientId, Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      console.error(`Twitch Helix clips error: ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const clips = Array.isArray(data?.data) ? data.data : [];
+
+    return clips
+      .map((clip: Record<string, unknown>) => ({
+        slug: typeof clip.id === "string" ? clip.id : null,
+        title: typeof clip.title === "string" ? clip.title : null,
+        thumbnailUrl: typeof clip.thumbnail_url === "string" ? clip.thumbnail_url : null,
+        broadcasterName: typeof clip.broadcaster_name === "string" ? clip.broadcaster_name : null,
+        viewCount: typeof clip.view_count === "number" ? clip.view_count : 0,
+        createdAt: typeof clip.created_at === "string" ? clip.created_at : null,
+      }))
+      .filter((clip: { slug: string | null }): clip is TwitchClipSummary => !!clip.slug)
+      .sort((a: TwitchClipSummary, b: TwitchClipSummary) => b.viewCount - a.viewCount)
+      .slice(0, limit);
+  } catch (err) {
+    console.error("Twitch clips fetch failed:", err);
+    return [];
+  }
+}
+
 export interface TwitchClipMetadata {
   title: string | null;
   thumbnailUrl: string | null;

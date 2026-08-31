@@ -31,6 +31,11 @@ export function SortFilter({
   // shared with /twitch/[slug], which never passes this, so Twitch
   // pages never render or link to like_ratio_desc at all.
   showLikeRatio = false,
+  // Optional allow-list of sort values to show (e.g. only
+  // ["views_desc", "votes_desc"] on Top daily clips pages). Undefined
+  // (the default) shows every option, unchanged for every other
+  // official/queue category on either platform.
+  restrictTo,
 }: {
   basePath: string;
   categorySlug: string;
@@ -38,9 +43,13 @@ export function SortFilter({
   kind: CategoryKind;
   active?: string;
   showLikeRatio?: boolean;
+  restrictTo?: string[];
 }) {
   const kindParam = kind === "queue" ? "&kind=queue" : "";
-  const options = showLikeRatio ? [...SORT_OPTIONS, LIKE_RATIO_OPTION] : SORT_OPTIONS;
+  let options = showLikeRatio ? [...SORT_OPTIONS, LIKE_RATIO_OPTION] : SORT_OPTIONS;
+  if (restrictTo) {
+    options = options.filter((opt) => restrictTo.includes(opt.value));
+  }
 
   return (
     <div className="flex flex-wrap gap-1.5">

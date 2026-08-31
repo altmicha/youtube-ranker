@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { VideoCard } from "@/components/video-card";
@@ -12,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 import { filterVideosByTimeWindow, parseSortParam, sortVideos, sortOrderColumn } from "@/lib/rank-videos";
+import { isTopDailyClipsCategory } from "@/lib/top-daily-clips";
+import { refreshTopDailyClips } from "@/lib/top-daily-clips-refresh";
 import type { CategoryKind } from "@/lib/types/database.types";
 
 export default async function TwitchCategoryPage({
@@ -40,6 +43,28 @@ export default async function TwitchCategoryPage({
 
   if (!category) notFound();
 
+  const isTopDailyClips = isTopDailyClipsCategory(category);
+
+  // Requirement: refresh this streamer's Top daily clips when their
+  // category page loads (the "if the hourly job isn't possible"
+  // fallback) — scheduled via after() so this page never waits on
+  // Twitch; refreshTopDailyClips() itself enforces the once-per-hour
+  // cap per streamer.
+  if (isTopDailyClips && category.streamer_id) {
+    const { data: owningStreamer } = await supabase
+      .from("streamers")
+      .select("id, slug, twitch_login")
+      .eq("id", category.streamer_id)
+      .single();
+    if (owningStreamer?.twitch_login) {
+      after(() =>
+        refreshTopDailyClips([
+          { id: owningStreamer.id, slug: owningStreamer.slug, twitch_login: owningStreamer.twitch_login! },
+        ])
+      );
+    }
+  }
+
   // Requirement: back link goes to the category's streamer, not the
   // platform page. Looked up dynamically from category.streamer_id —
   // works for any streamer, nothing hardcoded. Falls back to a plain
@@ -59,12 +84,23 @@ export default async function TwitchCategoryPage({
   }
 
   const range = parseTimeRange(sp.range);
-  const since = timeRangeSince(range);
+  // Requirement: Top daily clips are never filtered by the 24h Twitch
+  // fetch window (or any time range) in the UI — the 24h window only
+  // applies to what refreshTopDailyClips() fetches FROM Twitch. This
+  // page always shows whatever's currently stored in the category,
+  // regardless of any ?range= a hand-edited URL might still carry
+  // (the time range picker itself is hidden below for this category).
+  const since = isTopDailyClips ? null : timeRangeSince(range);
 
-  // Requirement: sort filters (views/date/votes, either direction),
-  // in addition to the existing time range filter. Default (no
-  // ?sort=) is submissions descending, unchanged from before.
-  const { field: sortField, direction: sortDirection } = parseSortParam(sp.sort);
+  // Requirement: only "Most views" and "Most votes" survive as sort
+  // options on Top daily clips pages, and the default (no ?sort=) is
+  // views descending here — everywhere else, the default stays
+  // submissions descending, untouched.
+  const { field: sortField, direction: sortDirection } = isTopDailyClips
+    ? sp.sort
+      ? parseSortParam(sp.sort)
+      : { field: "views" as const, direction: "desc" as const }
+    : parseSortParam(sp.sort);
 
   const requestedTake = parseInt(sp.take ?? "", 10);
   const take = Number.isFinite(requestedTake) && requestedTake > PAGE_SIZE
@@ -122,11 +158,24 @@ export default async function TwitchCategoryPage({
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category.name}
           </h1>
-          <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} kind={kind} sort={sp.sort} />
+          {/* Requirement: no Daily/Weekly/Monthly/All time picker on
+              Top daily clips — there's nothing to filter by time
+              range here, the category always just shows whatever's
+              currently stored. */}
+          {!isTopDailyClips && (
+            <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} kind={kind} sort={sp.sort} />
+          )}
         </div>
 
         <div className="mt-2">
-          <SortFilter basePath="/twitch" categorySlug={slug} range={range} kind={kind} active={sp.sort} />
+          <SortFilter
+            basePath="/twitch"
+            categorySlug={slug}
+            range={range}
+            kind={kind}
+            active={sp.sort ?? (isTopDailyClips ? "views_desc" : undefined)}
+            restrictTo={isTopDailyClips ? ["views_desc", "votes_desc"] : undefined}
+          />
         </div>
 
         <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -143,10 +192,13 @@ export default async function TwitchCategoryPage({
       {/* See app/youtube/[slug]/page.tsx for the same pattern and
           rationale — lockedCategory mode removes the picker entirely;
           official vs queue still determines who can see this form,
-          enforced server-side too, not just here. */}
-      {(category.kind === "queue" ? !!profile : canSubmitOnCategoryPage(profile?.role)) && (
-        <SubmitVideoForm platform="twitch" lockedCategory={category} />
-      )}
+          enforced server-side too, not just here. Requirement: no
+          user submission at all on the auto-populated Top daily
+          clips category, regardless of role. */}
+      {!isTopDailyClips &&
+        (category.kind === "queue" ? !!profile : canSubmitOnCategoryPage(profile?.role)) && (
+          <SubmitVideoForm platform="twitch" lockedCategory={category} />
+        )}
 
       <div className="flex flex-col gap-1.5">
         <VideoPlayerProvider>
@@ -172,8 +224,11 @@ export default async function TwitchCategoryPage({
         {videos.length === 0 && !videosError && (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No clips submitted in {category.name}{" "}
-              {range === "all" ? "yet." : `in the ${TIME_RANGE_WINDOW_TEXT[range]}.`}
+              {isTopDailyClips
+                ? `No clips in ${category.name} yet.`
+                : `No clips submitted in ${category.name} ${
+                    range === "all" ? "yet." : `in the ${TIME_RANGE_WINDOW_TEXT[range]}.`
+                  }`}
             </CardContent>
           </Card>
         )}
