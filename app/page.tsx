@@ -1,7 +1,6 @@
 import { after } from "next/server";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { streamerCoverUrl } from "@/lib/streamer-image";
 import { formatCount } from "@/lib/format";
@@ -83,9 +82,10 @@ export default async function HomePage() {
               <Link
                 key={streamer.id}
                 href={`/streamer/${streamer.slug}`}
-                className="block w-36 no-underline"
+                className="block w-36 no-underline rounded-2xl p-2"
+                style={streamer.is_live ? { border: "2px solid #ef4444" } : { border: "2px solid transparent" }}
               >
-                <div className="relative h-48 w-36 overflow-hidden rounded-md bg-muted">
+                <div className="relative h-48 w-full overflow-hidden rounded-md bg-muted">
                   {coverUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -100,17 +100,20 @@ export default async function HomePage() {
                       {streamer.display_name?.[0]?.toUpperCase() ?? "?"}
                     </div>
                   )}
-                  {streamer.is_live && (
-                    <Badge className="absolute left-1.5 top-1.5 border-transparent bg-red-600 px-1.5 py-0 text-[10px] text-white">
+                </div>
+                {streamer.is_live && (
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="text-[10px] font-bold" style={{ color: "#ef4444" }}>
                       LIVE
-                      {streamer.viewer_count != null && ` · ${formatCount(streamer.viewer_count)}`}
-                    </Badge>
-                  )}
-                </div>
+                    </span>
+                    {streamer.viewer_count != null && (
+                      <span className="text-sm text-muted-foreground">
+                        viewers {formatCount(streamer.viewer_count)}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="mt-1 truncate text-sm">{streamer.display_name}</div>
-                <div className="text-[11px] capitalize text-muted-foreground">
-                  {streamer.platform}
-                </div>
               </Link>
             );
           })}
