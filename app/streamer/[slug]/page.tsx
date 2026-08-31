@@ -3,6 +3,32 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StreamerCategoryList } from "@/components/streamer-category-list";
 import { Separator } from "@/components/ui/separator";
+import type { Category } from "@/lib/types/database.types";
+
+// One platform's cards within a section (official or queue). Hides
+// its own heading entirely when there's nothing to show — works for
+// any streamer since it's just filtering whatever categories were
+// already fetched, nothing hardcoded. Card links themselves are
+// untouched — still built by StreamerCategoryList exactly as before.
+function PlatformCards({
+  platform,
+  categories,
+}: {
+  platform: "youtube" | "twitch";
+  categories: Category[];
+}) {
+  const filtered = categories.filter((c) => c.platform === platform);
+  if (filtered.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-muted-foreground">
+        {platform === "youtube" ? "YouTube" : "Twitch"}
+      </h3>
+      <StreamerCategoryList categories={filtered} />
+    </div>
+  );
+}
 
 export default async function StreamerPage({
   params,
@@ -38,6 +64,9 @@ export default async function StreamerPage({
       message: categoriesError.message,
     });
   }
+
+  const officialCategories = (categories ?? []).filter((c) => c.kind === "official");
+  const queueCategories = (categories ?? []).filter((c) => c.kind === "queue");
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,12 +105,16 @@ export default async function StreamerPage({
       ) : (
         <>
           {/*
-            Requirement: official categories first (unchanged from
-            before), then a divider, then the queue section — works
-            for any streamer since both lists are just this streamer's
-            categories split by `kind`, nothing hardcoded.
+            Requirement: official section organized by platform —
+            YouTube cards, then Twitch cards, each heading hidden if
+            that streamer has no cards there. Still shown first, still
+            no top-level "Official" label, matching how this looked
+            before this change.
           */}
-          <StreamerCategoryList categories={(categories ?? []).filter((c) => c.kind === "official")} />
+          <div className="flex flex-col gap-4">
+            <PlatformCards platform="youtube" categories={officialCategories} />
+            <PlatformCards platform="twitch" categories={officialCategories} />
+          </div>
 
           <Separator />
 
@@ -89,7 +122,10 @@ export default async function StreamerPage({
             <h2 className="mb-3 text-lg font-semibold">
               Submit videos for your creator to react to
             </h2>
-            <StreamerCategoryList categories={(categories ?? []).filter((c) => c.kind === "queue")} />
+            <div className="flex flex-col gap-4">
+              <PlatformCards platform="youtube" categories={queueCategories} />
+              <PlatformCards platform="twitch" categories={queueCategories} />
+            </div>
           </div>
         </>
       )}
