@@ -46,13 +46,18 @@ export function StreamerCategoryList({ categories }: { categories: Category[] })
       {categories.map((category) => {
         const imageUrl = categoryImageUrl(category.image_path);
         const basePath = category.platform === "youtube" ? "/youtube" : "/twitch";
+        // Requirement: official "funny clips" and queue "funny clips"
+        // can now share a slug for the same streamer+platform — the
+        // ?kind= param is what keeps their links from colliding on
+        // the exact same /youtube/<slug> destination. Omitted for
+        // "official" so those URLs stay exactly as they always looked.
+        const href =
+          category.kind === "queue"
+            ? `${basePath}/${category.slug}?kind=queue`
+            : `${basePath}/${category.slug}`;
 
         return (
-          <Link
-            key={category.id}
-            href={`${basePath}/${category.slug}`}
-            className="block w-36 no-underline"
-          >
+          <Link key={category.id} href={href} className="block w-36 no-underline">
             <div
               className={`relative h-48 w-36 overflow-hidden rounded-md ${gradientForId(category.id)}`}
             >

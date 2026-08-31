@@ -5,14 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
 import { extractTwitchClipSlug, fetchTwitchClipMetadata } from "@/lib/twitch";
-import type { VideoSource } from "@/lib/types/database.types";
+import type { VideoSource, CategoryKind } from "@/lib/types/database.types";
 
 export type SubmitVideoResult = { error: string } | { success: true };
 
 export async function submitVideo(
   url: string,
   categorySlug: string,
-  platform: VideoSource
+  platform: VideoSource,
+  kind: CategoryKind
 ): Promise<SubmitVideoResult> {
   // Feature: only logged-in users can submit. getCurrentProfile()
   // reads the session server-side, so this can't be bypassed from the
@@ -57,23 +58,25 @@ export async function submitVideo(
 
   const supabase = await createClient();
 
-  // Categories are creator-managed rows, looked up by the SAME two
-  // plain values (platform, slug) that both the submit RPCs and the
-  // category pages use — no id/uuid anywhere in this comparison, per
-  // requirement 3. The submit_video()/submit_twitch_clip() Postgres
-  // functions re-validate this too (defense in depth), but this
-  // catches an invalid category earlier with a clean error message.
+  // Categories are creator-managed rows, looked up by (platform, slug,
+  // kind). (platform, slug) alone is no longer unique — an official
+  // and a queue category can now share the same slug for the same
+  // streamer+platform (see add_category_kind.sql's new unique
+  // indexes) — so kind is required here to resolve the exact category
+  // this submission is for, not its same-slug sibling.
   const { data: category, error: categoryError } = await supabase
     .from("categories")
     .select("slug, platform, kind")
     .eq("platform", platform)
     .eq("slug", categorySlug)
+    .eq("kind", kind)
     .single();
 
   if (categoryError) {
     console.error("submitVideo: category lookup failed", {
       platform,
       categorySlug,
+      kind,
       code: categoryError.code,
       message: categoryError.message,
     });

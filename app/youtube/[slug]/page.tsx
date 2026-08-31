@@ -11,22 +11,32 @@ import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 import { rankVideosByWindow } from "@/lib/rank-videos";
+import type { CategoryKind } from "@/lib/types/database.types";
 
 export default async function YoutubeCategoryPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ range?: string; take?: string }>;
+  searchParams: Promise<{ range?: string; take?: string; kind?: string }>;
 }) {
   const { slug } = await params;
   const supabase = await createClient();
+
+  const sp = await searchParams;
+  // (platform, slug) is no longer unique on its own — an official and
+  // a queue category can share a slug for the same streamer+platform
+  // (see add_category_kind.sql). Default to "official" so every link
+  // that predates this feature (none of which ever had a ?kind=)
+  // keeps resolving to exactly the category it always did.
+  const kind: CategoryKind = sp.kind === "queue" ? "queue" : "official";
 
   const { data: category } = await supabase
     .from("categories")
     .select("*")
     .eq("platform", "youtube")
     .eq("slug", slug)
+    .eq("kind", kind)
     .single();
 
   if (!category) notFound();
@@ -49,7 +59,6 @@ export default async function YoutubeCategoryPage({
     }
   }
 
-  const sp = await searchParams;
   const range = parseTimeRange(sp.range);
   const since = timeRangeSince(range);
 
@@ -111,11 +120,11 @@ export default async function YoutubeCategoryPage({
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category.name}
           </h1>
-          <TimeRangeFilter basePath="/youtube" categorySlug={slug} active={range} />
+          <TimeRangeFilter basePath="/youtube" categorySlug={slug} active={range} kind={kind} />
         </div>
 
         <p className="mt-1 font-mono text-xs text-muted-foreground">
-          filter: source=youtube · category={slug}
+          filter: source=youtube · category={slug} · kind={kind}
         </p>
 
         {videosError && (
@@ -166,7 +175,7 @@ export default async function YoutubeCategoryPage({
           </Card>
         )}
         <LoadMoreLink
-          href={`/youtube/${slug}?range=${range}&take=${take + PAGE_SIZE}`}
+          href={`/youtube/${slug}?range=${range}&take=${take + PAGE_SIZE}${kind === "queue" ? "&kind=queue" : ""}`}
           hasMore={hasMore}
         />
       </div>

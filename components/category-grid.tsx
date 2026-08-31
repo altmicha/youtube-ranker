@@ -93,19 +93,27 @@ export function CategoryGrid({
       </div>
 
       <div className="flex flex-wrap gap-3">
-        {filtered.map((category) => (
-          <Link
-            key={category.id}
-            href={`${basePath}/${category.slug}`}
-            className="block w-36 no-underline"
-          >
-            <CategoryPoster
-              imageUrl={categoryImageUrl(category.image_path)}
-              gradient={gradientForId(category.id)}
-            />
-            <div className="mt-1 truncate text-sm">{category.name}</div>
-          </Link>
-        ))}
+        {filtered.map((category) => {
+          // Requirement: official and queue can now share a slug on
+          // the same platform (see add_category_kind.sql) — the
+          // destination page needs ?kind= to know which one to show.
+          // Omitted for "official" (the default) so those URLs look
+          // exactly like they always have.
+          const href =
+            category.kind === "queue"
+              ? `${basePath}/${category.slug}?kind=queue`
+              : `${basePath}/${category.slug}`;
+
+          return (
+            <Link key={category.id} href={href} className="block w-36 no-underline">
+              <CategoryPoster
+                imageUrl={categoryImageUrl(category.image_path)}
+                gradient={gradientForId(category.id)}
+              />
+              <div className="mt-1 truncate text-sm">{category.name}</div>
+            </Link>
+          );
+        })}
         {filtered.length === 0 && categories.length > 0 && (
           <p className="w-full py-6 text-center text-sm text-muted-foreground">
             No categories match &ldquo;{query}&rdquo;.

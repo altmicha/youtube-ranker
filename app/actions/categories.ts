@@ -88,6 +88,27 @@ export async function createCategory(
     return { error: "Choose a valid streamer." };
   }
 
+  // Requirement: only error if this exact name already exists for
+  // THIS streamer, in THIS section (platform + kind) — matches the
+  // unique index on (streamer_id, platform, kind, lower(name)).
+  // Checked explicitly first so "Official 'funny clips'" and "Queue
+  // 'funny clips'" for the same streamer both succeed (different
+  // kind = no conflict), with a clean, accurate error message before
+  // ever hitting the database constraint. Compared in JS rather than
+  // via .ilike() — ilike treats % and _ in the name as wildcards,
+  // which could false-match names containing those characters.
+  const { data: siblingCategories } = await supabase
+    .from("categories")
+    .select("id, name")
+    .eq("streamer_id", streamerId)
+    .eq("platform", platform)
+    .eq("kind", kind);
+
+  const existing = siblingCategories?.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+  if (existing) {
+    return { error: `A ${kind} category named "${trimmed}" already exists for this streamer.` };
+  }
+
   const { data, error } = await supabase
     .from("categories")
     .insert({ platform, name: trimmed, slug, streamer_id: streamerId, kind })
@@ -110,7 +131,16 @@ export async function createCategory(
     });
 
     if (error.code === "23505") {
-      return { error: `A ${platform === "youtube" ? "YouTube" : "Twitch"} category with that name already exists.` };
+      // The pre-check above already covers the common case (same
+      // streamer reusing a name). If the insert still hits a unique
+      // violation here, it's almost certainly the OTHER unique index
+      // — (platform, kind, slug) — meaning a DIFFERENT streamer
+      // already has a same-named (so same-slug) category in this
+      // exact platform+kind. That one can't be avoided app-side:
+      // two categories can't share one /youtube/<slug> URL.
+      return {
+        error: `That name is already taken by another streamer's ${kind} category on this platform — try a different name.`,
+      };
     }
     if (error.code === "42501") {
       // RLS rejected the insert — either this account's profiles.role
@@ -164,6 +194,39 @@ export async function updateCategory(
     return { error: "Choose a valid streamer." };
   }
 
+  // A category's kind is immutable after creation (only name and
+  // streamer can change here), so the sibling check below needs to
+  // know it to compare against the right group. The unique index is
+  // (streamer_id, platform, kind, lower(name)), so a rename that
+  // collides with ANOTHER category in the exact same streamer +
+  // platform + kind group would otherwise fail on the DB constraint
+  // with a raw error — checked here first for a clean message,
+  // excluding this category's own row.
+  const { data: currentCategory } = await supabase
+    .from("categories")
+    .select("kind")
+    .eq("id", categoryId)
+    .single();
+
+  if (!currentCategory) {
+    return { error: "That category no longer exists." };
+  }
+
+  const { data: siblingCategories } = await supabase
+    .from("categories")
+    .select("id, name")
+    .eq("streamer_id", streamerId)
+    .eq("platform", platform)
+    .eq("kind", currentCategory.kind)
+    .neq("id", categoryId);
+
+  const conflict = siblingCategories?.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+  if (conflict) {
+    return {
+      error: `A ${currentCategory.kind} category named "${trimmed}" already exists for this streamer.`,
+    };
+  }
+
   // Slug intentionally not touched — renaming keeps existing
   // /youtube/<slug> or /twitch/<slug> links working, and videos are
   // linked to the category by that same slug (see schema.sql), so
@@ -181,6 +244,11 @@ export async function updateCategory(
       code: error.code,
       message: error.message,
     });
+    if (error.code === "23505") {
+      return {
+        error: "That name conflicts with an existing category — try a different name.",
+      };
+    }
     if (error.code === "42501") {
       return {
         error:

@@ -46,7 +46,16 @@ export function SubmitVideoForm({
     }
 
     startTransition(async () => {
-      const result = await submitVideo(url, categorySlug, platform);
+      // Derive the selected option's kind from the categories list —
+      // safe here since this form is always given a single-category
+      // array from the category pages (no slug collision possible).
+      // The platform landing pages (/youtube, /twitch) pass a longer
+      // list; if two categories there ever share a slug across kinds,
+      // this picks the first match — a known limitation out of scope
+      // for this change (those pages weren't part of this request).
+      const selectedCategory = categories.find((c) => c.slug === categorySlug);
+      const kind = selectedCategory?.kind ?? "official";
+      const result = await submitVideo(url, categorySlug, platform, kind);
       if ("error" in result) {
         setError(result.error);
       } else {

@@ -11,22 +11,30 @@ import { Card, CardContent } from "@/components/ui/card";
 import { parseTimeRange, timeRangeSince, TIME_RANGE_WINDOW_TEXT } from "@/lib/time-range";
 import { VideoPlayerProvider } from "@/lib/video-player-context";
 import { rankVideosByWindow } from "@/lib/rank-videos";
+import type { CategoryKind } from "@/lib/types/database.types";
 
 export default async function TwitchCategoryPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ range?: string; take?: string }>;
+  searchParams: Promise<{ range?: string; take?: string; kind?: string }>;
 }) {
   const { slug } = await params;
   const supabase = await createClient();
+
+  const sp = await searchParams;
+  // (platform, slug) is no longer unique on its own — see
+  // add_category_kind.sql. Default to "official" so every link that
+  // predates this feature keeps resolving to what it always did.
+  const kind: CategoryKind = sp.kind === "queue" ? "queue" : "official";
 
   const { data: category } = await supabase
     .from("categories")
     .select("*")
     .eq("platform", "twitch")
     .eq("slug", slug)
+    .eq("kind", kind)
     .single();
 
   if (!category) notFound();
@@ -49,7 +57,6 @@ export default async function TwitchCategoryPage({
     }
   }
 
-  const sp = await searchParams;
   const range = parseTimeRange(sp.range);
   const since = timeRangeSince(range);
 
@@ -108,11 +115,11 @@ export default async function TwitchCategoryPage({
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {category.name}
           </h1>
-          <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} />
+          <TimeRangeFilter basePath="/twitch" categorySlug={slug} active={range} kind={kind} />
         </div>
 
         <p className="mt-1 font-mono text-xs text-muted-foreground">
-          filter: source=twitch · category={slug}
+          filter: source=twitch · category={slug} · kind={kind}
         </p>
 
         {videosError && (
@@ -156,7 +163,7 @@ export default async function TwitchCategoryPage({
           </Card>
         )}
         <LoadMoreLink
-          href={`/twitch/${slug}?range=${range}&take=${take + PAGE_SIZE}`}
+          href={`/twitch/${slug}?range=${range}&take=${take + PAGE_SIZE}${kind === "queue" ? "&kind=queue" : ""}`}
           hasMore={hasMore}
         />
       </div>
