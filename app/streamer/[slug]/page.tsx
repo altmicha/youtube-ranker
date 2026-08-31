@@ -86,9 +86,29 @@ export default async function StreamerPage({
     featuredClips = await fetchFeaturedClips(supabase, featuredClipsCategory.slug);
   }
 
+  // Requirement fix: the category can exist (e.g. just recreated by
+  // ensureFeaturedClipsCategory()) while genuinely having zero clips
+  // in it yet — the routine background refresh below is cooldown-
+  // limited per streamer, not per "does this category actually have
+  // clips", so a stale in-memory cooldown timestamp from before a
+  // reset could leave it empty indefinitely. When that's the case,
+  // force a synchronous refresh just this once (bypassing the
+  // cooldown) so this very page load has something to show, then
+  // re-read what actually got stored.
+  if (featuredClipsCategory && featuredClips.length === 0 && streamer.twitch_login) {
+    await refreshFeaturedClips(
+      [{ id: streamer.id, slug: streamer.slug, twitch_login: streamer.twitch_login }],
+      { force: true }
+    );
+    featuredClips = await fetchFeaturedClips(supabase, featuredClipsCategory.slug);
+  }
+
   // Refresh on page load (this page has no other trigger point) —
   // scheduled via after() so the page never waits on Twitch; capped
   // to once per streamer per hour by refreshFeaturedClips() itself.
+  // Redundant with the forced refresh right above when that just ran
+  // (it already recorded this streamer as refreshed), so this simply
+  // no-ops in that case rather than doing the work twice.
   if (streamer.twitch_login) {
     after(() =>
       refreshFeaturedClips([{ id: streamer.id, slug: streamer.slug, twitch_login: streamer.twitch_login! }])

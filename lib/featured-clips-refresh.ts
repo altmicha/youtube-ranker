@@ -23,6 +23,17 @@ const lastRefreshedAt = new Map<string, number>();
  * their "Featured clips" category — creating that category first if
  * it doesn't exist yet.
  *
+ * `force`: bypasses the cooldown for the given streamers. Used by
+ * app/streamer/[slug]/page.tsx specifically when the Featured clips
+ * category already exists but currently has zero clips in it — e.g.
+ * the category was recreated after being deleted, but this function's
+ * own in-memory "last refreshed" timestamp from before that reset was
+ * still within the last hour, so the normal cooldown check would keep
+ * silently skipping it (a category card with nothing in it,
+ * indefinitely) even though nothing has actually been fetched since
+ * the reset. Not used for the routine background refresh — that stays
+ * cooldown-limited as before.
+ *
  * No duplicates: upsert is keyed on twitch_clip_slug via onConflict,
  * same as Top daily clips — an already-stored clip is updated in
  * place, never inserted as a second row.
@@ -46,10 +57,12 @@ const lastRefreshedAt = new Map<string, number>();
  * load triggered this.
  */
 export async function refreshFeaturedClips(
-  streamers: { id: string; slug: string; twitch_login: string }[]
+  streamers: { id: string; slug: string; twitch_login: string }[],
+  options: { force?: boolean } = {}
 ): Promise<void> {
   const now = Date.now();
   const due = streamers.filter((s) => {
+    if (options.force) return true;
     const last = lastRefreshedAt.get(s.id);
     return !last || now - last > REFRESH_COOLDOWN_MS;
   });

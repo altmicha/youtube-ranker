@@ -25,9 +25,25 @@ export function isFeaturedClipsCategory(category: { slug: string; name: string }
 /**
  * Creates the streamer's "Featured clips" official Twitch category if
  * it doesn't already exist. Idempotent — safe to call on every
- * refresh, not just once. Same AnySupabaseClient contract as
- * ensureTopDailyClipsCategory() (works with both the request-scoped
- * client and the admin client).
+ * refresh, not just once.
+ *
+ * The bug this fixes: the previous version looked up "does this
+ * already exist" by an exact match on the slug freshly computed from
+ * streamer.slug right now, and never checked streamer_id at all. Any
+ * existing row that didn't have that exact slug — created before this
+ * streamer's own slug last changed, or via any other path, including
+ * from /creator — was invisible to that lookup, so it always fell
+ * through to inserting a "new" row, which immediately violated the
+ * (streamer_id, platform, kind, lower(name)) unique constraint and
+ * failed with the exact same error every single time this ran.
+ *
+ * The lookup now scopes by streamer_id (this streamer's own category,
+ * never another streamer's) and matches on EITHER the exact name
+ * ("Featured clips", case-insensitive) OR a slug starting with
+ * "featured-clips" — whichever this row was actually created with,
+ * it's found and reused. Two plain .ilike()/.like() queries rather
+ * than a single .or() filter string, to avoid any ambiguity in how
+ * that string gets parsed/escaped.
  */
 export async function ensureFeaturedClipsCategory(
   supabase: AnySupabaseClient,
@@ -35,17 +51,50 @@ export async function ensureFeaturedClipsCategory(
 ): Promise<Category | null> {
   const slug = featuredClipsSlug(streamer.slug);
 
-  const { data: existing } = await supabase
+  const { data: byName, error: byNameError } = await supabase
     .from("categories")
     .select("*")
+    .eq("streamer_id", streamer.id)
     .eq("platform", "twitch")
-    .eq("slug", slug)
     .eq("kind", "official")
+    .ilike("name", FEATURED_CLIPS_NAME)
     .maybeSingle();
 
-  if (existing) return existing;
+  if (byNameError) {
+    console.error("ensureFeaturedClipsCategory: lookup by name failed", {
+      streamerId: streamer.id,
+      message: byNameError.message,
+    });
+  }
+  if (byName) return byName;
 
-  const { data: created, error } = await supabase
+  const { data: bySlug, error: bySlugError } = await supabase
+    .from("categories")
+    .select("*")
+    .eq("streamer_id", streamer.id)
+    .eq("platform", "twitch")
+    .eq("kind", "official")
+    .like("slug", "featured-clips%")
+    .maybeSingle();
+
+  if (bySlugError) {
+    console.error("ensureFeaturedClipsCategory: lookup by slug prefix failed", {
+      streamerId: streamer.id,
+      message: bySlugError.message,
+    });
+  }
+  if (bySlug) return bySlug;
+
+  // Not found under either check — genuinely create it. Always via
+  // the service-role admin client for the write itself, regardless of
+  // which client (request-scoped or admin) the caller passed in for
+  // the reads above — categories are publicly readable either way, so
+  // the read doesn't need elevated privileges, but the write
+  // shouldn't depend on the caller's session having creator-level RLS
+  // permission (this function gets called from background jobs with
+  // no user session at all).
+  const admin = createAdminClient();
+  const { data: created, error } = await admin
     .from("categories")
     .insert({
       platform: "twitch",
@@ -63,6 +112,8 @@ export async function ensureFeaturedClipsCategory(
       slug,
       code: error.code,
       message: error.message,
+      details: error.details,
+      hint: error.hint,
     });
     return null;
   }
