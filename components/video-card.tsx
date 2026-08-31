@@ -126,7 +126,10 @@ export function VideoCard({
 
       {isPlaying &&
         (isTwitch ? (
-          <TwitchEmbed slug={video.twitch_clip_slug!} />
+          // Same toggle() already used for click-to-open — closing via
+          // the X button just calls it again, identical to clicking
+          // the thumbnail/title a second time.
+          <TwitchEmbed slug={video.twitch_clip_slug!} onClose={() => toggle(video.id)} />
         ) : (
           <VideoEmbed youtubeId={video.youtube_id!} />
         ))}

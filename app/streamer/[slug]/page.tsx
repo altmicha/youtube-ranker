@@ -1,13 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { StreamerCategoryList } from "@/components/streamer-category-list";
-import { FeaturedClips } from "@/components/featured-clips";
+import { StreamerHero } from "@/components/streamer-hero";
 import { Separator } from "@/components/ui/separator";
-import { buttonVariants } from "@/components/ui/button";
-import { formatCount } from "@/lib/format";
-import { isTopDailyClipsCategory } from "@/lib/top-daily-clips";
-import { cn } from "@/lib/utils";
+import { isFeaturedClipsCategory } from "@/lib/featured-clips";
+import { refreshFeaturedClips } from "@/lib/featured-clips-refresh";
 import type { Category } from "@/lib/types/database.types";
 
 // One platform's cards within a section (official or queue). Hides
@@ -73,16 +72,27 @@ export default async function StreamerPage({
   const officialCategories = (categories ?? []).filter((c) => c.kind === "official");
   const queueCategories = (categories ?? []).filter((c) => c.kind === "queue");
 
-  // Requirement: "if this streamer has Top daily clips" — reuses the
+  // Requirement: Featured clips is a completely separate data source
+  // from Top daily clips — its own category (lib/featured-clips.ts),
+  // its own 30-day Twitch fetch, its own refresh job. Reuses the
   // categories already fetched above rather than a second query.
   // Works for any streamer since it's just checking for a category
-  // matching the pattern lib/top-daily-clips.ts's
-  // ensureTopDailyClipsCategory() creates, nothing hardcoded.
-  const topDailyClipsCategory = officialCategories.find((c) => isTopDailyClipsCategory(c));
+  // matching the pattern ensureFeaturedClipsCategory() creates,
+  // nothing hardcoded.
+  const featuredClipsCategory = officialCategories.find((c) => isFeaturedClipsCategory(c));
 
   let featuredClips: Awaited<ReturnType<typeof fetchFeaturedClips>> = [];
-  if (topDailyClipsCategory) {
-    featuredClips = await fetchFeaturedClips(supabase, topDailyClipsCategory.slug);
+  if (featuredClipsCategory) {
+    featuredClips = await fetchFeaturedClips(supabase, featuredClipsCategory.slug);
+  }
+
+  // Refresh on page load (this page has no other trigger point) —
+  // scheduled via after() so the page never waits on Twitch; capped
+  // to once per streamer per hour by refreshFeaturedClips() itself.
+  if (streamer.twitch_login) {
+    after(() =>
+      refreshFeaturedClips([{ id: streamer.id, slug: streamer.slug, twitch_login: streamer.twitch_login! }])
+    );
   }
 
   // Requirement: watch links built only from twitch_login /
@@ -99,80 +109,16 @@ export default async function StreamerPage({
         ← Back home
       </Link>
 
-      {/*
-        Hero: bigger/richer treatment than a plain page header, per
-        this being a streamer "promo page" now — avatar, name, LIVE +
-        viewer count, bio, and watch buttons together. Same 80x80
-        avatar size for every streamer regardless of whether they
-        have an image, via inline style alongside the Tailwind classes
-        (same belt-and-suspenders pattern used for the 48x48
-        dashboard thumbnails in components/creator/category-manager.tsx).
-      */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        {streamer.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={streamer.avatar_url}
-            alt=""
-            width={80}
-            height={80}
-            className="block flex-shrink-0 rounded-full object-cover"
-            style={{ width: 80, height: 80, objectFit: "cover" }}
-          />
-        ) : (
-          <div
-            className="flex flex-shrink-0 items-center justify-center rounded-full bg-muted text-2xl font-semibold text-muted-foreground"
-            style={{ width: 80, height: 80 }}
-          >
-            {streamer.display_name?.[0]?.toUpperCase() ?? "?"}
-          </div>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">{streamer.display_name}</h1>
-            {streamer.is_live && (
-              <span className="flex items-center gap-1.5">
-                <span className="text-xs font-bold" style={{ color: "#ef4444" }}>
-                  LIVE
-                </span>
-                {streamer.viewer_count != null && (
-                  <span className="text-xs text-muted-foreground">
-                    viewers {formatCount(streamer.viewer_count)}
-                  </span>
-                )}
-              </span>
-            )}
-          </div>
-
-          {streamer.bio && <p className="max-w-prose text-sm text-muted-foreground">{streamer.bio}</p>}
-
-          <div className="flex flex-wrap gap-2">
-            {twitchUrl && (
-              <a
-                href={twitchUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(buttonVariants({ variant: streamer.is_live ? "default" : "outline", size: "sm" }))}
-              >
-                {streamer.is_live ? "Watch live" : "Watch on Twitch"}
-              </a>
-            )}
-            {youtubeUrl && (
-              <a
-                href={youtubeUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                Watch on YouTube
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <FeaturedClips clips={featuredClips} />
+      <StreamerHero
+        displayName={streamer.display_name}
+        avatarUrl={streamer.avatar_url}
+        bio={streamer.bio}
+        isLive={!!streamer.is_live}
+        viewerCount={streamer.viewer_count}
+        twitchUrl={twitchUrl}
+        youtubeUrl={youtubeUrl}
+        featuredClips={featuredClips}
+      />
 
       {categoriesError ? (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">

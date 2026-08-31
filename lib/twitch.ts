@@ -216,15 +216,18 @@ export async function fetchTwitchBroadcasterId(login: string): Promise<string | 
 }
 
 /**
- * Fetches this broadcaster's clips created in the last 24 hours,
- * returning the top `limit` by view count. Helix's Get Clips already
- * sorts by view count descending by default; this also re-sorts
- * defensively in case that ever changes, and caps to `limit` (10, per
- * this feature's requirement) client-side.
+ * Fetches this broadcaster's clips created within the last `days`
+ * days, returning the top `limit` by view count. Helix's Get Clips
+ * already sorts by view count descending by default; this also
+ * re-sorts defensively in case that ever changes, and caps to `limit`
+ * client-side. Shared by fetchTopTwitchClipsLast24h() (Top daily
+ * clips, unchanged) and fetchTopTwitchClipsLast30Days() (Featured
+ * clips) below — the only difference between the two is this window.
  */
-export async function fetchTopTwitchClipsLast24h(
+async function fetchTopTwitchClipsInWindow(
   broadcasterId: string,
-  limit = 10
+  days: number,
+  limit: number
 ): Promise<TwitchClipSummary[]> {
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!clientId) return [];
@@ -233,11 +236,11 @@ export async function fetchTopTwitchClipsLast24h(
   if (!token) return [];
 
   const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
   const url = new URL("https://api.twitch.tv/helix/clips");
   url.searchParams.set("broadcaster_id", broadcasterId);
-  url.searchParams.set("started_at", yesterday.toISOString());
+  url.searchParams.set("started_at", since.toISOString());
   url.searchParams.set("ended_at", now.toISOString());
   url.searchParams.set("first", "100");
 
@@ -271,6 +274,29 @@ export async function fetchTopTwitchClipsLast24h(
     console.error("Twitch clips fetch failed:", err);
     return [];
   }
+}
+
+/**
+ * Top daily clips' data source — unchanged from before. Last 24
+ * hours, top `limit` by view count.
+ */
+export async function fetchTopTwitchClipsLast24h(
+  broadcasterId: string,
+  limit = 10
+): Promise<TwitchClipSummary[]> {
+  return fetchTopTwitchClipsInWindow(broadcasterId, 1, limit);
+}
+
+/**
+ * Featured clips' data source — deliberately separate from the 24h
+ * window above, per that section's own requirement not to reuse the
+ * Top daily clips list. Last 30 days, top `limit` by view count.
+ */
+export async function fetchTopTwitchClipsLast30Days(
+  broadcasterId: string,
+  limit = 5
+): Promise<TwitchClipSummary[]> {
+  return fetchTopTwitchClipsInWindow(broadcasterId, 30, limit);
 }
 
 export interface TwitchClipMetadata {
