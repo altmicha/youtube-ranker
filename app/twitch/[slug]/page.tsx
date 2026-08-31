@@ -141,10 +141,11 @@ export default async function TwitchCategoryPage({
       </div>
 
       {/* See app/youtube/[slug]/page.tsx for the same pattern and
-          rationale — official vs queue determines who can see this
-          form, enforced server-side too, not just here. */}
+          rationale — lockedCategory mode removes the picker entirely;
+          official vs queue still determines who can see this form,
+          enforced server-side too, not just here. */}
       {(category.kind === "queue" ? !!profile : canSubmitOnCategoryPage(profile?.role)) && (
-        <SubmitVideoForm platform="twitch" categories={[category]} />
+        <SubmitVideoForm platform="twitch" lockedCategory={category} />
       )}
 
       <div className="flex flex-col gap-1.5">

@@ -10,25 +10,34 @@ import { cn } from "@/lib/utils";
 
 export function SubmitVideoForm({
   platform,
-  categories,
+  categories = [],
+  lockedCategory,
 }: {
   // Which platform this form instance is locked to — determines the
   // placeholder text, the wrong-URL error message, and gets passed
   // to submitVideo() so it can reject a URL that doesn't match.
   platform: VideoSource;
-  // This platform's own live category list, fetched by the page from
-  // the categories table — never a hardcoded array.
-  categories: Category[];
+  // Used only when lockedCategory is NOT given — the multi-category
+  // picker on /youtube and /twitch (platform landing pages, not
+  // touched by this change).
+  categories?: Category[];
+  // When provided, the category picker is removed entirely and every
+  // submission goes straight to this exact category — its slug
+  // (platform+kind implied by the category row itself) is what gets
+  // sent to submitVideo(), with no user choice involved. Used by
+  // /youtube/[slug] and /twitch/[slug], which already know exactly
+  // which category, streamer, and kind the page belongs to.
+  lockedCategory?: Category;
 }) {
   const [url, setUrl] = useState("");
-  // Category is required — no default selected, so submitting with
-  // the placeholder still in place is blocked by `required` on the
-  // <select> plus the empty-string check below. The value stored here
-  // is the category's SLUG (e.g. "music"), not its id — that's the
-  // same value category pages filter by, so what gets selected here
-  // is exactly what ends up saved on the video and exactly what
-  // /youtube/music (etc.) looks for. No id enters this flow at all.
-  const [categorySlug, setCategorySlug] = useState<string>("");
+  // Category is required when there's a picker (no lockedCategory) —
+  // no default selected there, so submitting with the placeholder
+  // still in place is blocked by `required` on the <select> plus the
+  // empty-string check below. When lockedCategory is set, this is
+  // pre-filled with its slug and never changes — the same value
+  // category pages filter by, so what's saved is exactly what
+  // /youtube/<slug> (etc.) looks for. No id enters this flow at all.
+  const [categorySlug, setCategorySlug] = useState<string>(lockedCategory?.slug ?? "");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -46,14 +55,10 @@ export function SubmitVideoForm({
     }
 
     startTransition(async () => {
-      // Derive the selected option's kind from the categories list —
-      // safe here since this form is always given a single-category
-      // array from the category pages (no slug collision possible).
-      // The platform landing pages (/youtube, /twitch) pass a longer
-      // list; if two categories there ever share a slug across kinds,
-      // this picks the first match — a known limitation out of scope
-      // for this change (those pages weren't part of this request).
-      const selectedCategory = categories.find((c) => c.slug === categorySlug);
+      // lockedCategory already IS the exact category — no lookup
+      // needed, and no ambiguity risk. Otherwise (platform landing
+      // pages' picker) derive kind from whichever option was chosen.
+      const selectedCategory = lockedCategory ?? categories.find((c) => c.slug === categorySlug);
       const kind = selectedCategory?.kind ?? "official";
       const result = await submitVideo(url, categorySlug, platform, kind);
       if ("error" in result) {
@@ -61,7 +66,9 @@ export function SubmitVideoForm({
       } else {
         setSuccess("Submitted!");
         setUrl("");
-        setCategorySlug("");
+        // Locked forms keep their (only) category selected after a
+        // successful submit; the picker resets to empty as before.
+        setCategorySlug(lockedCategory?.slug ?? "");
       }
     });
   }
@@ -94,26 +101,28 @@ export function SubmitVideoForm({
               )}
             </div>
 
-            <select
-              required
-              value={categorySlug}
-              onChange={(e) => setCategorySlug(e.target.value)}
-              disabled={isPending || categories.length === 0}
-              aria-label="Category"
-              className={cn(
-                "h-11 rounded-md border border-input bg-background px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-                !categorySlug && "text-muted-foreground"
-              )}
-            >
-              <option value="" disabled>
-                Category…
-              </option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.slug} className="text-foreground">
-                  {c.name}
+            {!lockedCategory && (
+              <select
+                required
+                value={categorySlug}
+                onChange={(e) => setCategorySlug(e.target.value)}
+                disabled={isPending || categories.length === 0}
+                aria-label="Category"
+                className={cn(
+                  "h-11 rounded-md border border-input bg-background px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                  !categorySlug && "text-muted-foreground"
+                )}
+              >
+                <option value="" disabled>
+                  Category…
                 </option>
-              ))}
-            </select>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.slug} className="text-foreground">
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <Button type="submit" disabled={isPending} size="lg" className="h-11">
               {isPending ? "Submitting…" : "Submit"}

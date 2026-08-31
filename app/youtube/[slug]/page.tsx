@@ -149,17 +149,16 @@ export default async function YoutubeCategoryPage({
       </div>
 
       {/*
-        Reuses SubmitVideoForm unmodified, constrained to a single-item
-        categories array (this page's own category), so the submission
-        always lands in "the category of the current page." Official
+        Reuses SubmitVideoForm unmodified, using its lockedCategory
+        mode: no category picker, every submission goes straight to
+        this exact category (its own platform+kind, already resolved
+        above by the dynamic lookup — nothing hardcoded). Official
         categories keep the creator/streamer/admin-only rule; queue
         categories (kind === "queue") are open to any logged-in user —
         also enforced server-side in submitVideo(), not just here.
-        Works for every category/streamer automatically since
-        `category` is looked up dynamically above — nothing hardcoded.
       */}
       {(category.kind === "queue" ? !!profile : canSubmitOnCategoryPage(profile?.role)) && (
-        <SubmitVideoForm platform="youtube" categories={[category]} />
+        <SubmitVideoForm platform="youtube" lockedCategory={category} />
       )}
 
       <div className="flex flex-col gap-1.5">
