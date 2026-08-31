@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { StreamerManager } from "@/components/creator/streamer-manager";
+import { StreamerManager, type OwnerOption } from "@/components/creator/streamer-manager";
 import { CategoryManager } from "@/components/creator/category-manager";
 import type { Category, Streamer } from "@/lib/types/database.types";
 
@@ -23,6 +23,7 @@ export function StreamerAndCategorySection({
   initialYoutubeCategories,
   initialTwitchCategories,
   canManageOfficial,
+  owners,
 }: {
   initialStreamers: Streamer[];
   initialYoutubeCategories: Category[];
@@ -32,6 +33,9 @@ export function StreamerAndCategorySection({
   // streamer viewing this page can still add Queue categories but
   // not Official ones — see canManageOfficial in CategoryManager.
   canManageOfficial: boolean;
+  // Candidate Owner picker options, fetched from profiles (publicly
+  // readable) by app/creator/page.tsx.
+  owners: OwnerOption[];
 }) {
   const [streamers, setStreamers] = useState(initialStreamers);
 
@@ -39,7 +43,7 @@ export function StreamerAndCategorySection({
     <div className="flex flex-col gap-8">
       <div>
         <h2 className="mb-3 text-lg font-semibold">Streamers</h2>
-        <StreamerManager initialStreamers={initialStreamers} onStreamersChange={setStreamers} />
+        <StreamerManager initialStreamers={initialStreamers} owners={owners} onStreamersChange={setStreamers} />
       </div>
 
       <div>

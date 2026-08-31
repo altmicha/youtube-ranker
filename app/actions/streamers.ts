@@ -39,7 +39,8 @@ export async function createStreamer(
   name: string,
   slug: string,
   bio: string,
-  twitchLogin: string
+  twitchLogin: string,
+  ownerId: string
 ): Promise<StreamerActionResult> {
   const check = await requireCreatorProfile();
   if ("error" in check) return check;
@@ -71,6 +72,9 @@ export async function createStreamer(
       // stored lowercase here so it matches what
       // lib/twitch.ts's fetchTwitchLiveStatuses() looks up by.
       twitch_login: twitchLogin.trim() ? twitchLogin.trim().toLowerCase() : null,
+      // Optional — the Owner field on /creator is not required, so an
+      // empty selection just leaves this null.
+      owner_id: ownerId || null,
     })
     .select()
     .single();
@@ -121,7 +125,8 @@ export async function updateStreamer(
   slug: string,
   name: string,
   bio: string,
-  twitchLogin: string
+  twitchLogin: string,
+  ownerId: string
 ): Promise<SimpleActionResult> {
   const check = await requireCreatorProfile();
   if ("error" in check) return check;
@@ -138,6 +143,7 @@ export async function updateStreamer(
       display_name: trimmedName,
       bio: bio.trim() || null,
       twitch_login: twitchLogin.trim() ? twitchLogin.trim().toLowerCase() : null,
+      owner_id: ownerId || null,
     })
     .eq("id", streamerId);
 

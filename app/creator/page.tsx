@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import { requireCreatorOrStreamer } from "@/lib/auth/roles";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { AwardPointsButton } from "@/components/award-points-button";
 import { RemoveVideoButton } from "@/components/remove-video-button";
 import { VideoCard } from "@/components/video-card";
@@ -53,6 +53,26 @@ export default async function CreatorDashboardPage() {
     supabase.from("streamers").select("*").order("display_name"),
   ]);
 
+  // Owner picker candidates for the Streamers form. Fetched via the
+  // admin client rather than the normal request-scoped one — a
+  // creator's own session may only be able to SELECT their own
+  // profiles row under RLS, which would make this list useless for
+  // picking anyone else as an owner. Safe to bypass RLS here since
+  // this whole page is already gated to creator/streamer roles by
+  // requireCreatorOrStreamer() above.
+  const admin = createAdminClient();
+  const { data: ownerProfiles, error: ownersError } = await admin
+    .from("profiles")
+    .select("id, email, display_name")
+    .order("display_name", { ascending: true, nullsFirst: false });
+
+  if (ownersError) {
+    console.error("CreatorDashboardPage: owner profiles query failed", {
+      code: ownersError.code,
+      message: ownersError.message,
+    });
+  }
+
   // Reuse the two category lists already fetched above to build a
   // (source, category slug) -> name lookup — the same pair
   // submit/category pages use. category_id is vestigial/unreliable
@@ -98,6 +118,7 @@ export default async function CreatorDashboardPage() {
         initialYoutubeCategories={youtubeCategories ?? []}
         initialTwitchCategories={twitchCategories ?? []}
         canManageOfficial={profile.role === "creator"}
+        owners={ownerProfiles ?? []}
       />
 
       <Separator />

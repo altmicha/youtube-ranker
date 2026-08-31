@@ -59,6 +59,11 @@ export interface Streamer {
   // after() in app/page.tsx — never blocking the initial render.
   is_live: boolean | null;
   viewer_count: number | null;
+  // Optional link to the profiles row that owns this streamer's page.
+  // Nullable — existing streamers keep working with this unset; not
+  // used for access control anywhere yet. Added by
+  // add_streamer_owner_id.sql if missing.
+  owner_id: string | null;
   created_at: string;
 }
 

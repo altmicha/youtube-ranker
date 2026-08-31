@@ -12,21 +12,71 @@ import { Input } from "@/components/ui/input";
 import type { Streamer } from "@/lib/types/database.types";
 import { streamerCoverUrl } from "@/lib/streamer-image";
 
+// Minimal shape for the Owner picker — just what's needed to label
+// each option (display_name if set, else email) and identify it.
+export interface OwnerOption {
+  id: string;
+  email: string;
+  display_name: string | null;
+}
+
+function ownerLabel(owner: OwnerOption): string {
+  return owner.display_name?.trim() || owner.email;
+}
+
+function OwnerSelect({
+  value,
+  onChange,
+  owners,
+  disabled,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  owners: OwnerOption[];
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+      aria-label="Owner"
+      className="h-8 rounded-md border border-input bg-background px-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {/* Optional field — an empty selection is valid and means no owner. */}
+      <option value="">No owner</option>
+      {owners.map((owner) => (
+        <option key={owner.id} value={owner.id}>
+          {ownerLabel(owner)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function StreamerRow({
   streamer,
+  owners,
+  ownerLabelById,
   onRemoved,
 }: {
   streamer: Streamer;
+  owners: OwnerOption[];
+  // Current owner's label, looked up by the parent (which has the
+  // full owner list) — null if this streamer has no owner set.
+  ownerLabelById: Map<string, string>;
   onRemoved: (id: string) => void;
 }) {
   const [currentName, setCurrentName] = useState(streamer.display_name);
   const [currentBio, setCurrentBio] = useState(streamer.bio ?? "");
   const [currentTwitchLogin, setCurrentTwitchLogin] = useState(streamer.twitch_login ?? "");
+  const [currentOwnerId, setCurrentOwnerId] = useState(streamer.owner_id ?? "");
   const [currentCoverPath, setCurrentCoverPath] = useState(streamer.cover_path);
   const [isEditing, setIsEditing] = useState(false);
   const [draftName, setDraftName] = useState(streamer.display_name);
   const [draftBio, setDraftBio] = useState(streamer.bio ?? "");
   const [draftTwitchLogin, setDraftTwitchLogin] = useState(streamer.twitch_login ?? "");
+  const [draftOwnerId, setDraftOwnerId] = useState(streamer.owner_id ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -41,7 +91,14 @@ function StreamerRow({
     }
     setMessage(null);
     startTransition(async () => {
-      const result = await updateStreamer(streamer.id, streamer.slug, trimmed, draftBio, draftTwitchLogin);
+      const result = await updateStreamer(
+        streamer.id,
+        streamer.slug,
+        trimmed,
+        draftBio,
+        draftTwitchLogin,
+        draftOwnerId
+      );
       if ("error" in result) {
         setIsError(true);
         setMessage(result.error);
@@ -49,6 +106,7 @@ function StreamerRow({
         setCurrentName(trimmed);
         setCurrentBio(draftBio.trim());
         setCurrentTwitchLogin(draftTwitchLogin.trim().toLowerCase());
+        setCurrentOwnerId(draftOwnerId);
         setIsError(false);
         setMessage(null);
         setIsEditing(false);
@@ -143,6 +201,10 @@ function StreamerRow({
               className="h-8 max-w-[320px] text-sm"
               disabled={isPending}
             />
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Owner:</span>
+              <OwnerSelect value={draftOwnerId} onChange={setDraftOwnerId} owners={owners} disabled={isPending} />
+            </div>
             <div className="flex gap-1.5">
               <Button size="sm" onClick={handleSave} disabled={isPending}>
                 Save
@@ -155,6 +217,7 @@ function StreamerRow({
                   setDraftName(currentName);
                   setDraftBio(currentBio);
                   setDraftTwitchLogin(currentTwitchLogin);
+                  setDraftOwnerId(currentOwnerId);
                 }}
                 disabled={isPending}
               >
@@ -168,6 +231,7 @@ function StreamerRow({
             <p className="truncate text-xs text-muted-foreground">
               /{streamer.slug}
               {currentTwitchLogin && ` · twitch.tv/${currentTwitchLogin}`}
+              {currentOwnerId && ` · owner: ${ownerLabelById.get(currentOwnerId) ?? "unknown"}`}
             </p>
             {currentBio && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{currentBio}</p>}
           </>
@@ -189,6 +253,7 @@ function StreamerRow({
               setDraftName(currentName);
               setDraftBio(currentBio);
               setDraftTwitchLogin(currentTwitchLogin);
+              setDraftOwnerId(currentOwnerId);
               setIsEditing(true);
             }}
             disabled={isPending}
@@ -233,9 +298,13 @@ function StreamerRow({
 // where "type: YouTube or Twitch" is actually picked, per category).
 export function StreamerManager({
   initialStreamers,
+  owners,
   onStreamersChange,
 }: {
   initialStreamers: Streamer[];
+  // Fetched by app/creator/page.tsx from profiles (publicly readable)
+  // — every profile is a candidate owner, not just creators.
+  owners: OwnerOption[];
   // Lets the parent (creator page) keep CategoryManager's streamer
   // picker options in sync as streamers are added/removed here,
   // without a full page reload.
@@ -246,8 +315,11 @@ export function StreamerManager({
   const [newSlug, setNewSlug] = useState("");
   const [newBio, setNewBio] = useState("");
   const [newTwitchLogin, setNewTwitchLogin] = useState("");
+  const [newOwnerId, setNewOwnerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const ownerLabelById = new Map(owners.map((o) => [o.id, ownerLabel(o)]));
 
   function updateAndNotify(next: Streamer[]) {
     setStreamers(next);
@@ -268,7 +340,7 @@ export function StreamerManager({
     }
 
     startTransition(async () => {
-      const result = await createStreamer(newName.trim(), newSlug.trim(), newBio, newTwitchLogin);
+      const result = await createStreamer(newName.trim(), newSlug.trim(), newBio, newTwitchLogin, newOwnerId);
       if ("error" in result) {
         setError(result.error);
       } else {
@@ -279,6 +351,7 @@ export function StreamerManager({
         setNewSlug("");
         setNewBio("");
         setNewTwitchLogin("");
+        setNewOwnerId("");
       }
     });
   }
@@ -292,6 +365,8 @@ export function StreamerManager({
           <StreamerRow
             key={s.id}
             streamer={s}
+            owners={owners}
+            ownerLabelById={ownerLabelById}
             onRemoved={(id) => updateAndNotify(streamers.filter((st) => st.id !== id))}
           />
         ))}
@@ -300,7 +375,7 @@ export function StreamerManager({
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
+      <form onSubmit={handleAdd} className="flex flex-wrap items-center gap-2">
         <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
@@ -329,6 +404,7 @@ export function StreamerManager({
           disabled={isPending}
           className="h-9 flex-1"
         />
+        <OwnerSelect value={newOwnerId} onChange={setNewOwnerId} owners={owners} disabled={isPending} />
         <Button type="submit" size="sm" disabled={isPending}>
           {isPending ? "Adding…" : "Add streamer"}
         </Button>
