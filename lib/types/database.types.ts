@@ -64,7 +64,23 @@ export interface Streamer {
   // used for access control anywhere yet. Added by
   // add_streamer_owner_id.sql if missing.
   owner_id: string | null;
+  // Ordered list of section ids controlling which sections
+  // /streamer/[slug] shows and in what order — e.g.
+  // ["hero", "featured", "youtube", "twitch", "queue"]. Null means
+  // "use the default order" (that same list); a section id not
+  // present in this array is hidden entirely. No UI to edit this yet
+  // (no Edit button, no drag-and-drop) — reading only, for now.
+  layout: string[] | null;
+  // Visitor-facing link buttons (separate from bio) — each entry is
+  // {label, url}. Nullable/empty means no links shown. Added by
+  // add_streamer_links.sql if missing.
+  links: StreamerLink[] | null;
   created_at: string;
+}
+
+export interface StreamerLink {
+  label: string;
+  url: string;
 }
 
 export type CategoryKind = "official" | "queue";

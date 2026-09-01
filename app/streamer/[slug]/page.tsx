@@ -2,12 +2,20 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentProfile } from "@/lib/auth/roles";
 import { StreamerCategoryList } from "@/components/streamer-category-list";
 import { StreamerHero } from "@/components/streamer-hero";
+import { StreamerBio } from "@/components/streamer-bio";
+import { FeaturedClipsSection } from "@/components/featured-clips-section";
 import { Separator } from "@/components/ui/separator";
 import { isFeaturedClipsCategory } from "@/lib/featured-clips";
 import { refreshFeaturedClips } from "@/lib/featured-clips-refresh";
 import type { Category } from "@/lib/types/database.types";
+
+// Default order/visibility when streamers.layout is null. A section
+// id not present in whichever list actually gets used (default or
+// the streamer's own) is hidden entirely — see the render loop below.
+const DEFAULT_LAYOUT = ["hero", "featured", "youtube", "twitch", "queue"];
 
 // One platform's cards within a section (official or queue). Hides
 // its own heading entirely when there's nothing to show — works for
@@ -123,52 +131,104 @@ export default async function StreamerPage({
     ? `https://www.youtube.com/channel/${streamer.youtube_channel_id}`
     : null;
 
+  // Requirement: edit box only for streamers.owner_id, or role
+  // creator/admin — same authorization rule enforced again, for real,
+  // server-side in app/actions/streamer-bio.ts (this is just what
+  // controls whether the edit affordance renders at all).
+  const profile = await getCurrentProfile();
+  const canEditBio =
+    !!profile &&
+    (profile.role === "creator" ||
+      profile.role === "admin" ||
+      (streamer.owner_id != null && streamer.owner_id === profile.id));
+
+  // Requirement: use streamers.layout order/visibility when set;
+  // "layout is null" specifically is what triggers the default — an
+  // explicitly-set empty array means "show nothing", per the literal
+  // spec, not a fallback trigger. Defensively filtered to strings only
+  // in case any non-string ever ends up in the jsonb value.
+  const layout: string[] = Array.isArray(streamer.layout)
+    ? streamer.layout.filter((id): id is string => typeof id === "string")
+    : DEFAULT_LAYOUT;
+
+  // Each possible section's content, built once. A section id missing
+  // from `layout` above is simply never looked up here, which is what
+  // "hides" it — nothing renders anything by default anymore, the
+  // layout list is what decides.
+  const sections: Record<string, React.ReactNode> = {
+    hero: (
+      <div className="flex flex-col gap-3">
+        <StreamerHero
+          displayName={streamer.display_name}
+          avatarUrl={streamer.avatar_url}
+          isLive={!!streamer.is_live}
+          viewerCount={streamer.viewer_count}
+          twitchUrl={twitchUrl}
+          youtubeUrl={youtubeUrl}
+        />
+        {/* Requirement: bio shown under the hero — rendered here as
+            its own component right after StreamerHero rather than as
+            a separate layout section, so this stays purely a content
+            feature and doesn't touch the section/layout ordering
+            system at all. */}
+        <StreamerBio
+          streamerId={streamer.id}
+          initialBio={streamer.bio}
+          initialLinks={streamer.links}
+          canEdit={canEditBio}
+        />
+      </div>
+    ),
+    featured: <FeaturedClipsSection clips={featuredClips} />,
+    youtube: <PlatformCards platform="youtube" categories={officialCategories} />,
+    twitch: <PlatformCards platform="twitch" categories={officialCategories} />,
+    queue: (
+      <div>
+        <h2 className="mb-3 text-lg font-semibold">
+          Submit videos for your creator to react to
+        </h2>
+        <div className="flex flex-col gap-4">
+          <PlatformCards platform="youtube" categories={queueCategories} />
+          <PlatformCards platform="twitch" categories={queueCategories} />
+        </div>
+      </div>
+    ),
+  };
+
+  // A section's own component (PlatformCards, FeaturedClipsSection)
+  // already returns null internally when it has nothing to show, but
+  // that's invisible from here — a JSX element reference is always
+  // truthy regardless of what it renders to. Computed separately so
+  // an empty section doesn't still get an empty wrapper + a stray
+  // Separator next to it below.
+  const sectionHasContent: Record<string, boolean> = {
+    hero: true, // always has at least a name
+    featured: featuredClips.length > 0,
+    youtube: officialCategories.some((c) => c.platform === "youtube"),
+    twitch: officialCategories.some((c) => c.platform === "twitch"),
+    queue: queueCategories.length > 0,
+  };
+
+  const orderedSectionIds = layout.filter((id) => id in sections && sectionHasContent[id]);
+
   return (
     <div className="flex flex-col gap-6">
       <Link href="/" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
         ← Back home
       </Link>
 
-      <StreamerHero
-        displayName={streamer.display_name}
-        avatarUrl={streamer.avatar_url}
-        bio={streamer.bio}
-        isLive={!!streamer.is_live}
-        viewerCount={streamer.viewer_count}
-        twitchUrl={twitchUrl}
-        youtubeUrl={youtubeUrl}
-        featuredClips={featuredClips}
-      />
-
-      {categoriesError ? (
+      {categoriesError && (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Could not load categories: {categoriesError.message}
         </p>
-      ) : (
-        <>
-          {/*
-            Official section organized by platform — YouTube cards,
-            then Twitch cards, each heading hidden if that streamer
-            has no cards there.
-          */}
-          <div className="flex flex-col gap-4">
-            <PlatformCards platform="youtube" categories={officialCategories} />
-            <PlatformCards platform="twitch" categories={officialCategories} />
-          </div>
-
-          <Separator />
-
-          <div>
-            <h2 className="mb-3 text-lg font-semibold">
-              Submit videos for your creator to react to
-            </h2>
-            <div className="flex flex-col gap-4">
-              <PlatformCards platform="youtube" categories={queueCategories} />
-              <PlatformCards platform="twitch" categories={queueCategories} />
-            </div>
-          </div>
-        </>
       )}
+
+      {orderedSectionIds.map((id, index) => (
+        <div key={id} className="flex flex-col gap-6">
+          {index > 0 && <Separator />}
+          {sections[id]}
+        </div>
+      ))}
     </div>
   );
 }
