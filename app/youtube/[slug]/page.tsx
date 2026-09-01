@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
+import { isMyVodsCategory } from "@/lib/my-vods";
 import { VideoCard } from "@/components/video-card";
 import { UpvoteButton } from "@/components/upvote-button";
 import { TimeRangeFilter } from "@/components/time-range-filter";
@@ -45,18 +46,23 @@ export default async function YoutubeCategoryPage({
   // Requirement: back link goes to the category's streamer, not the
   // platform page. Looked up dynamically from category.streamer_id —
   // works for any streamer, nothing hardcoded. Falls back to a plain
-  // link home if this category has no streamer assigned.
+  // link home if this category has no streamer assigned. owner_id is
+  // also selected here (not just for the back link) so the My VODs
+  // permission check below can reuse this same row instead of a
+  // second query.
   let backHref = "/";
   let backLabel = "← Back home";
+  let streamerOwnerId: string | null = null;
   if (category.streamer_id) {
     const { data: streamer } = await supabase
       .from("streamers")
-      .select("slug, display_name")
+      .select("slug, display_name, owner_id")
       .eq("id", category.streamer_id)
       .single();
     if (streamer) {
       backHref = `/streamer/${streamer.slug}`;
       backLabel = `← Back to ${streamer.display_name}`;
+      streamerOwnerId = streamer.owner_id;
     }
   }
 
@@ -116,6 +122,22 @@ export default async function YoutubeCategoryPage({
     upvotedVideoIds = new Set(myVotes?.map((v) => v.video_id));
   }
 
+  // Requirement: "My VODs" has a stricter submit rule than other
+  // official categories — only that specific streamer's owner, a
+  // creator, or an admin, not any account with the generic "streamer"
+  // role. This controls whether the form even shows; submitVideo()
+  // independently re-enforces the same rule server-side, so this is
+  // only about avoiding showing a form that would just get rejected.
+  const canSubmit =
+    category.kind === "queue"
+      ? !!profile
+      : isMyVodsCategory(category)
+        ? !!profile &&
+          (profile.role === "creator" ||
+            profile.role === "admin" ||
+            (streamerOwnerId != null && streamerOwnerId === profile.id))
+        : canSubmitOnCategoryPage(profile?.role);
+
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -160,13 +182,13 @@ export default async function YoutubeCategoryPage({
         mode: no category picker, every submission goes straight to
         this exact category (its own platform+kind, already resolved
         above by the dynamic lookup — nothing hardcoded). Official
-        categories keep the creator/streamer/admin-only rule; queue
-        categories (kind === "queue") are open to any logged-in user —
-        also enforced server-side in submitVideo(), not just here.
+        categories keep the creator/streamer/admin-only rule, except
+        "My VODs" (owner/creator/admin only — see canSubmit above);
+        queue categories (kind === "queue") are open to any logged-in
+        user — also enforced server-side in submitVideo(), not just
+        here.
       */}
-      {(category.kind === "queue" ? !!profile : canSubmitOnCategoryPage(profile?.role)) && (
-        <SubmitVideoForm platform="youtube" lockedCategory={category} />
-      )}
+      {canSubmit && <SubmitVideoForm platform="youtube" lockedCategory={category} />}
 
       <div className="flex flex-col gap-1.5">
         <VideoPlayerProvider>

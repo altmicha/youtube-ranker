@@ -11,6 +11,7 @@ import { FeaturedClipsSection } from "@/components/featured-clips-section";
 import { Separator } from "@/components/ui/separator";
 import { isFeaturedClipsCategory } from "@/lib/featured-clips";
 import { refreshFeaturedClips } from "@/lib/featured-clips-refresh";
+import { isMyVodsCategory } from "@/lib/my-vods";
 import type { Category } from "@/lib/types/database.types";
 
 // Default order/visibility when streamers.layout is null. A section
@@ -126,6 +127,12 @@ export default async function StreamerPage({
     );
   }
 
+  // Requirement: "My VODs" is a normal, manually-created official
+  // YouTube category — no ensure*()/refresh job, just found here the
+  // same way Featured clips is (reusing categories already fetched
+  // above), for the teaser card next to Featured clips below.
+  const myVodsCategory = officialCategories.find((c) => isMyVodsCategory(c));
+
   // Requirement: watch links built only from twitch_login /
   // youtube_channel_id — nothing hardcoded, buttons simply don't
   // render when the relevant field is unset.
@@ -196,7 +203,31 @@ export default async function StreamerPage({
         </div>
       </div>
     ),
-    featured: <FeaturedClipsSection clips={featuredClips} />,
+    featured: (
+      // Requirement: My VODs card to the right of Featured clips, in
+      // the empty space "under the intro player" — a flex row at this
+      // call site, same pattern as the hero row above. Featured clips
+      // itself is untouched (still just <FeaturedClipsSection
+      // clips={featuredClips} />, same internal grid as before) — this
+      // only changes what wraps it, not its own contents. The two are
+      // shown independently: either can appear without the other.
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="sm:flex-1">
+          <FeaturedClipsSection clips={featuredClips} />
+        </div>
+        {myVodsCategory && (
+          <div className="w-full sm:w-[240px] sm:flex-shrink-0">
+            <h2 className="mb-2 text-sm font-semibold text-muted-foreground">My VODs</h2>
+            {/* Requirement: clicking the card goes to /youtube/<slug>
+                for this category — StreamerCategoryList already
+                builds that href correctly from category.platform,
+                reused here unmodified rather than a new card
+                component, passing just this one category. */}
+            <StreamerCategoryList categories={[myVodsCategory]} />
+          </div>
+        )}
+      </div>
+    ),
     youtube: <PlatformCards platform="youtube" categories={officialCategories} />,
     twitch: <PlatformCards platform="twitch" categories={officialCategories} />,
     tiktok: <PlatformCards platform="tiktok" categories={officialCategories} />,
@@ -222,7 +253,7 @@ export default async function StreamerPage({
   // Separator next to it below.
   const sectionHasContent: Record<string, boolean> = {
     hero: true, // always has at least a name
-    featured: featuredClips.length > 0,
+    featured: featuredClips.length > 0 || !!myVodsCategory,
     youtube: officialCategories.some((c) => c.platform === "youtube"),
     twitch: officialCategories.some((c) => c.platform === "twitch"),
     tiktok: officialCategories.some((c) => c.platform === "tiktok"),

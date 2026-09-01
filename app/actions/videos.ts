@@ -7,6 +7,7 @@ import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
 import { extractTwitchClipSlug, fetchTwitchClipMetadata } from "@/lib/twitch";
 import { extractTiktokVideoId, fetchTiktokMetadata } from "@/lib/tiktok";
 import { isTopDailyClipsCategory } from "@/lib/top-daily-clips";
+import { isMyVodsCategory } from "@/lib/my-vods";
 import type { VideoSource, CategoryKind } from "@/lib/types/database.types";
 
 export type SubmitVideoResult = { error: string } | { success: true };
@@ -79,7 +80,7 @@ export async function submitVideo(
   // this submission is for, not its same-slug sibling.
   const { data: category, error: categoryError } = await supabase
     .from("categories")
-    .select("slug, name, platform, kind")
+    .select("slug, name, platform, kind, streamer_id")
     .eq("platform", platform)
     .eq("slug", categorySlug)
     .eq("kind", kind)
@@ -107,14 +108,21 @@ export async function submitVideo(
     return { error: "This category is updated automatically and doesn't accept submissions." };
   }
 
-  // Requirement: official categories are still creator/streamer/
-  // admin-only to submit to — enforced here, server-side, not just by
-  // hiding the form on the category page (a request built by hand
-  // bypassing the UI is rejected the same way a normal user would be).
-  // Queue categories have no role restriction beyond being signed in,
-  // which the check at the top of this function already covers.
-  if (category.kind === "official" && !canSubmitOnCategoryPage(profile.role)) {
-    return { error: "Only creators, streamers, or admins can submit to this category." };
+  // Requirement: official categories are normally creator/streamer/
+  // admin-only to submit to (canSubmitOnCategoryPage) — but "My VODs"
+  // is stricter: only that specific streamer's owner, a creator, or
+  // an admin, not any account with the generic "streamer" role. Both
+  // rules are enforced here server-side, not just by hiding the form
+  // on the category page, so a hand-built request can't bypass either.
+  if (category.kind === "official") {
+    if (isMyVodsCategory(category)) {
+      const authorized = await isMyVodsAuthorized(supabase, category.streamer_id, profile);
+      if (!authorized) {
+        return { error: "Only this streamer's owner, a creator, or an admin can submit to My VODs." };
+      }
+    } else if (!canSubmitOnCategoryPage(profile.role)) {
+      return { error: "Only creators, streamers, or admins can submit to this category." };
+    }
   }
 
   // Rate limit: normal users can submit at most 3 videos per hour,
@@ -157,6 +165,37 @@ export async function submitVideo(
 // exported, just to type the two helpers below without repeating the
 // whole createClient() call signature.
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+// Requirement: "My VODs" submit access is creator/admin, or
+// specifically the owning streamer's owner (streamers.owner_id) — not
+// any account with role "streamer" the way other official categories
+// work. A category with no streamer_id at all has no owner to check
+// against, so only creator/admin can submit to it.
+async function isMyVodsAuthorized(
+  supabase: SupabaseServerClient,
+  streamerId: string | null,
+  profile: { id: string; role: string }
+): Promise<boolean> {
+  if (profile.role === "creator" || profile.role === "admin") return true;
+  if (!streamerId) return false;
+
+  const { data: streamer, error } = await supabase
+    .from("streamers")
+    .select("owner_id")
+    .eq("id", streamerId)
+    .single();
+
+  if (error) {
+    console.error("isMyVodsAuthorized: streamer lookup failed", {
+      streamerId,
+      code: error.code,
+      message: error.message,
+    });
+    return false;
+  }
+
+  return !!streamer && streamer.owner_id === profile.id;
+}
 
 async function submitYoutubeVideo(
   supabase: SupabaseServerClient,
