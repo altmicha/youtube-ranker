@@ -75,6 +75,11 @@ export interface Streamer {
   // {label, url}. Nullable/empty means no links shown. Added by
   // add_streamer_links.sql if missing.
   links: StreamerLink[] | null;
+  // YouTube or Twitch (clip/video) URL shown as an autoplay, muted
+  // intro embed to the right of the avatar/name in the hero. Nullable
+  // — the embed simply doesn't render when unset. Added by
+  // add_streamer_intro_url.sql if missing.
+  intro_url: string | null;
   created_at: string;
 }
 

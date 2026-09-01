@@ -6,6 +6,7 @@ import { getCurrentProfile } from "@/lib/auth/roles";
 import { StreamerCategoryList } from "@/components/streamer-category-list";
 import { StreamerHero } from "@/components/streamer-hero";
 import { StreamerBio } from "@/components/streamer-bio";
+import { StreamerIntro } from "@/components/streamer-intro";
 import { FeaturedClipsSection } from "@/components/featured-clips-section";
 import { Separator } from "@/components/ui/separator";
 import { isFeaturedClipsCategory } from "@/lib/featured-clips";
@@ -158,14 +159,30 @@ export default async function StreamerPage({
   const sections: Record<string, React.ReactNode> = {
     hero: (
       <div className="flex flex-col gap-3">
-        <StreamerHero
-          displayName={streamer.display_name}
-          avatarUrl={streamer.avatar_url}
-          isLive={!!streamer.is_live}
-          viewerCount={streamer.viewer_count}
-          twitchUrl={twitchUrl}
-          youtubeUrl={youtubeUrl}
-        />
+        {/* Requirement: intro embed fills the empty space to the
+            right of the avatar/name — a flex row wrapping both
+            StreamerHero and StreamerIntro at this call site, rather
+            than adding a slot inside StreamerHero itself, so that
+            component stays completely unmodified. sm:justify-between
+            pushes the intro column to the right on wider screens;
+            below sm they stack instead of squeezing together. */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <StreamerHero
+            displayName={streamer.display_name}
+            avatarUrl={streamer.avatar_url}
+            isLive={!!streamer.is_live}
+            viewerCount={streamer.viewer_count}
+            twitchUrl={twitchUrl}
+            youtubeUrl={youtubeUrl}
+          />
+          <div className="w-full sm:min-w-0 sm:flex-1">
+            <StreamerIntro
+              streamerId={streamer.id}
+              initialIntroUrl={streamer.intro_url}
+              canEdit={canEditBio}
+            />
+          </div>
+        </div>
         {/* Requirement: bio shown under the hero — rendered here as
             its own component right after StreamerHero rather than as
             a separate layout section, so this stays purely a content

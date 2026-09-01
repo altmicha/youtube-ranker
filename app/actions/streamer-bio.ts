@@ -15,7 +15,9 @@ const MAX_LINKS = 20;
 // the admin client rather than the request-scoped one — an owner who
 // isn't a creator would otherwise be silently rejected by RLS despite
 // passing this app-level check.
-async function requireStreamerEditAccess(streamerId: string) {
+// Exported so app/actions/streamer-intro.ts can reuse the exact same
+// authorization rule rather than duplicating it.
+export async function requireStreamerEditAccess(streamerId: string) {
   const profile = await getCurrentProfile();
   if (!profile) {
     return { error: "You need to sign in." } as const;
