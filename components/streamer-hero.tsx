@@ -11,6 +11,18 @@ interface StreamerHeroProps {
   youtubeUrl: string | null;
 }
 
+// Self-contained here rather than imported from lib/link-brand.tsx —
+// that module backs the custom link pills specifically, and keeping
+// this fully separate means changing the watch button can't have any
+// effect on those pills at all.
+function TwitchButtonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="#9146FF" aria-hidden="true">
+      <path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z" />
+    </svg>
+  );
+}
+
 // Avatar/name/LIVE badge/watch buttons. Bio moved out to its own
 // components/streamer-bio.tsx (rendered separately, right under this
 // component, from app/streamer/[slug]/page.tsx) — it now needs
@@ -71,9 +83,20 @@ export function StreamerHero({
               href={twitchUrl}
               target="_blank"
               rel="noreferrer"
-              className={cn(buttonVariants({ variant: isLive ? "default" : "outline", size: "sm" }))}
+              className={cn(buttonVariants({ variant: isLive ? "default" : "outline", size: "sm" }), "gap-1.5")}
             >
-              {isLive ? "Watch live" : "Watch on Twitch"}
+              <TwitchButtonIcon />
+              {isLive ? (
+                // Requirement: while live, keep "Watch live now"
+                // readable as one normal-colored string — no purple
+                // word-split here, since the word "Twitch" doesn't
+                // appear in this label at all.
+                "Watch live now"
+              ) : (
+                <span>
+                  Watch on <span style={{ color: "#9146FF" }}>Twitch</span>
+                </span>
+              )}
             </a>
           )}
           {youtubeUrl && (
