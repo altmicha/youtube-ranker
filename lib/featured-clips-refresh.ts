@@ -6,7 +6,7 @@ import {
 import { ensureFeaturedClipsCategory } from "@/lib/featured-clips";
 
 const REFRESH_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-const MAX_CLIPS_PER_STREAMER = 5;
+const MAX_CLIPS_PER_STREAMER = 6;
 
 // Mirrors lib/top-daily-clips-refresh.ts exactly, except the data
 // source: last 30 days instead of last 24 hours, and its own separate

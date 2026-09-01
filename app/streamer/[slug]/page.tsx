@@ -158,15 +158,18 @@ export default async function StreamerPage({
   // layout list is what decides.
   const sections: Record<string, React.ReactNode> = {
     hero: (
-      <div className="flex flex-col gap-3">
-        {/* Requirement: intro embed fills the empty space to the
-            right of the avatar/name — a flex row wrapping both
-            StreamerHero and StreamerIntro at this call site, rather
-            than adding a slot inside StreamerHero itself, so that
-            component stays completely unmodified. sm:justify-between
-            pushes the intro column to the right on wider screens;
-            below sm they stack instead of squeezing together. */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      // Requirement: two real columns, not "hero row + full-width bio
+      // below". Left column stacks StreamerHero (avatar/name/live/
+      // watch button, untouched) and StreamerBio (bio/links,
+      // untouched) together — bio and links now live under the watch
+      // button within the left column specifically, not spanning the
+      // whole hero's width. Right column is StreamerIntro alone,
+      // sm:items-start keeps it top-aligned with the avatar at the
+      // top of the left column. Neither StreamerHero nor StreamerBio
+      // needed any changes themselves — this is purely how they're
+      // grouped and wrapped at this call site.
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-1">
           <StreamerHero
             displayName={streamer.display_name}
             avatarUrl={streamer.avatar_url}
@@ -175,25 +178,20 @@ export default async function StreamerPage({
             twitchUrl={twitchUrl}
             youtubeUrl={youtubeUrl}
           />
-          <div className="w-full sm:min-w-0 sm:flex-1">
-            <StreamerIntro
-              streamerId={streamer.id}
-              initialIntroUrl={streamer.intro_url}
-              canEdit={canEditBio}
-            />
-          </div>
+          <StreamerBio
+            streamerId={streamer.id}
+            initialBio={streamer.bio}
+            initialLinks={streamer.links}
+            canEdit={canEditBio}
+          />
         </div>
-        {/* Requirement: bio shown under the hero — rendered here as
-            its own component right after StreamerHero rather than as
-            a separate layout section, so this stays purely a content
-            feature and doesn't touch the section/layout ordering
-            system at all. */}
-        <StreamerBio
-          streamerId={streamer.id}
-          initialBio={streamer.bio}
-          initialLinks={streamer.links}
-          canEdit={canEditBio}
-        />
+        <div className="w-full sm:min-w-0 sm:flex-1">
+          <StreamerIntro
+            streamerId={streamer.id}
+            initialIntroUrl={streamer.intro_url}
+            canEdit={canEditBio}
+          />
+        </div>
       </div>
     ),
     featured: <FeaturedClipsSection clips={featuredClips} />,
@@ -261,7 +259,7 @@ async function fetchFeaturedClips(
     .eq("category", categorySlug)
     .eq("is_removed", false)
     .order("view_count", { ascending: false, nullsFirst: false })
-    .limit(5);
+    .limit(6);
 
   if (error) {
     console.error("StreamerPage: featured clips query failed", {

@@ -12,12 +12,13 @@ import type { Video } from "@/lib/types/database.types";
 // Extracted out of components/streamer-hero.tsx — streamers.layout
 // treats "hero" and "featured" as two independently orderable/
 // hideable sections, so they can no longer be fused into one
-// component the way they were. Compact list (capped at ~420px),
-// re-click toggle, X-button close, and fade in/out with no empty box
-// left behind are all unchanged from before. The embed itself now
-// opens as a centered modal overlay instead of an inline block below
-// the list — see the render section at the bottom — so watching a
-// clip and picking another doesn't require scrolling down and back up.
+// component the way they were. Re-click toggle, X-button close, and
+// fade in/out with no empty box left behind are all unchanged from
+// before. The embed itself opens as a centered modal overlay instead
+// of an inline block below the list, so watching a clip and picking
+// another doesn't require scrolling down and back up. Cards are laid
+// out as a 2-column, 3-row grid (6 clips) — see the render section
+// below.
 const FADE_MS = 200;
 
 export function FeaturedClipsSection({ clips }: { clips: Video[] }) {
@@ -46,9 +47,22 @@ export function FeaturedClipsSection({ clips }: { clips: Video[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="w-full sm:w-[420px] sm:max-w-[420px]">
+      <div className="w-full max-w-2xl">
         <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Featured clips</h2>
-        <div className="flex flex-col gap-1.5">
+        {/* Requirement: exactly this className, backed by matching
+            inline style as a guarantee — grid-cols-2 has apparently
+            not been taking effect (same class of issue as several
+            other Tailwind classes elsewhere in this project not
+            generating), which is why this kept rendering as one
+            full-width card per row despite the class already being
+            here. Inline style can't have that problem: it doesn't
+            depend on a build step generating a matching class at all.
+            Each card's own content (thumbnail, title, views, time
+            ago, Twitch badge) is completely unchanged below. */}
+        <div
+          className="grid grid-cols-2 gap-3"
+          style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}
+        >
           {clips.map((clip) => {
             const stats = [
               clip.view_count != null && `${formatCount(clip.view_count)} views`,
@@ -62,7 +76,7 @@ export function FeaturedClipsSection({ clips }: { clips: Video[] }) {
                 onClick={() => toggle(clip.id)}
                 aria-pressed={playingId === clip.id}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-md border p-1.5 text-left transition-colors hover:bg-muted",
+                  "flex min-w-0 items-center gap-2.5 rounded-md border p-1.5 text-left transition-colors hover:bg-muted",
                   playingId === clip.id && "border-primary"
                 )}
               >
