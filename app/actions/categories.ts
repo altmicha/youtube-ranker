@@ -62,8 +62,8 @@ export async function createCategory(
     return { error: "Enter a category name." };
   }
 
-  const slug = categorySlug(trimmed);
-  if (!slug) {
+  const bareSlug = categorySlug(trimmed);
+  if (!bareSlug) {
     return { error: "That name doesn't produce a valid URL — try something with letters or numbers." };
   }
 
@@ -77,16 +77,30 @@ export async function createCategory(
   // Confirm the streamer is real (streamers aren't platform-scoped
   // anymore — a single streamer can have both YouTube and Twitch
   // categories — so there's no platform match to check here, unlike
-  // before).
+  // before). Also need the streamer's own slug now, for the suffix
+  // below.
   const { data: streamer, error: streamerError } = await supabase
     .from("streamers")
-    .select("id")
+    .select("id, slug")
     .eq("id", streamerId)
     .single();
 
   if (streamerError || !streamer) {
     return { error: "Choose a valid streamer." };
   }
+
+  // Requirement: "Official LSF" on xQc and "Official LSF" on LIRIK
+  // must both save. The categories table's unique index on
+  // (platform, kind, slug) is global — no streamer_id in it — so two
+  // categories with the same name from different streamers would
+  // otherwise collide on the exact same bare slug ("lsf" for both).
+  // Suffixing with the streamer's own slug makes this collision
+  // structurally impossible rather than something to detect and
+  // reject: lsf-xqc vs lsf-lirik. Same pattern already used for the
+  // auto-managed Top daily clips / Featured clips categories (see
+  // lib/top-daily-clips.ts's topDailyClipsSlug() and
+  // lib/featured-clips.ts's featuredClipsSlug()).
+  const slug = `${bareSlug}-${streamer.slug}`;
 
   // Requirement: only error if this exact name already exists for
   // THIS streamer, in THIS section (platform + kind) — matches the
@@ -131,15 +145,15 @@ export async function createCategory(
     });
 
     if (error.code === "23505") {
-      // The pre-check above already covers the common case (same
-      // streamer reusing a name). If the insert still hits a unique
-      // violation here, it's almost certainly the OTHER unique index
-      // — (platform, kind, slug) — meaning a DIFFERENT streamer
-      // already has a same-named (so same-slug) category in this
-      // exact platform+kind. That one can't be avoided app-side:
-      // two categories can't share one /youtube/<slug> URL.
+      // Requirement: the "taken by another streamer's category" error
+      // is gone — with the slug fix above, this specific collision
+      // (same name, different streamer) can no longer occur, since
+      // each streamer's slug is now unique by construction. If a
+      // 23505 still happens here, it's some other conflict — most
+      // likely a genuine duplicate request — not something worth
+      // presuming the cause of.
       return {
-        error: `That name is already taken by another streamer's ${kind} category on this platform — try a different name.`,
+        error: `Could not create this category — it may already exist. Try a different name.`,
       };
     }
     if (error.code === "42501") {

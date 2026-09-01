@@ -277,6 +277,7 @@ function CategoryGroup({
   streamers,
   streamerNameById,
   onCategoriesChange,
+  lockedStreamerId,
 }: {
   kind: CategoryKind;
   label: string;
@@ -285,6 +286,12 @@ function CategoryGroup({
   streamers: Streamer[];
   streamerNameById: Map<string, string>;
   onCategoriesChange: (next: Category[]) => void;
+  // Requirement: "adding a category uses the selected streamer" — set
+  // whenever the Categories section's own streamer filter has a
+  // streamer chosen. When present, the add-form's own streamer picker
+  // is skipped entirely (this value is used directly), rather than
+  // asking the person to pick the same streamer twice.
+  lockedStreamerId?: string;
 }) {
   const [newName, setNewName] = useState("");
   const [newStreamerId, setNewStreamerId] = useState("");
@@ -295,17 +302,19 @@ function CategoryGroup({
     e.preventDefault();
     setError(null);
 
+    const streamerId = lockedStreamerId || newStreamerId;
+
     if (!newName.trim()) {
       setError("Enter a category name.");
       return;
     }
-    if (!newStreamerId) {
+    if (!streamerId) {
       setError("Choose a streamer for this category.");
       return;
     }
 
     startTransition(async () => {
-      const result = await createCategory(platform, newName.trim(), newStreamerId, kind);
+      const result = await createCategory(platform, newName.trim(), streamerId, kind);
       if ("error" in result) {
         setError(result.error);
       } else {
@@ -346,17 +355,23 @@ function CategoryGroup({
           disabled={isPending}
           className="h-9 flex-1"
         />
-        <StreamerSelect
-          value={newStreamerId}
-          onChange={setNewStreamerId}
-          streamers={streamers}
-          disabled={isPending}
-        />
-        <Button type="submit" size="sm" disabled={isPending || streamers.length === 0}>
+        {!lockedStreamerId && (
+          <StreamerSelect
+            value={newStreamerId}
+            onChange={setNewStreamerId}
+            streamers={streamers}
+            disabled={isPending}
+          />
+        )}
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isPending || (!lockedStreamerId && streamers.length === 0)}
+        >
           {isPending ? "Adding…" : "Add"}
         </Button>
       </form>
-      {streamers.length === 0 && (
+      {!lockedStreamerId && streamers.length === 0 && (
         <p className="text-xs text-muted-foreground">Add a streamer above first — every category needs one.</p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -375,20 +390,42 @@ export function CategoryManager({
   // to reach this component at all, since /creator itself now gates
   // on creator-or-streamer).
   canManageOfficial,
+  // Requirement: filter to one streamer's categories, chosen at the
+  // Categories section level (see StreamerAndCategorySection) — empty
+  // string means no streamer picked yet, which shows nothing rather
+  // than every category across every streamer.
+  selectedStreamerId,
 }: {
   platform: VideoSource;
   initialCategories: Category[];
   streamers: Streamer[];
   canManageOfficial: boolean;
+  selectedStreamerId: string;
 }) {
   const [categories, setCategories] = useState(initialCategories);
 
-  const official = categories.filter((c) => c.kind === "official");
-  const queue = categories.filter((c) => c.kind === "queue");
+  const visible = selectedStreamerId
+    ? categories.filter((c) => c.streamer_id === selectedStreamerId)
+    : [];
+  const official = visible.filter((c) => c.kind === "official");
+  const queue = visible.filter((c) => c.kind === "queue");
   const streamerNameById = new Map(streamers.map((s) => [s.id, s.display_name]));
 
   function applyChange(kind: CategoryKind, next: Category[]) {
-    setCategories((prev) => [...prev.filter((c) => c.kind !== kind), ...next]);
+    setCategories((prev) => [...prev.filter((c) => c.kind !== kind || c.streamer_id !== selectedStreamerId), ...next]);
+  }
+
+  if (!selectedStreamerId) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h3 className="text-sm font-semibold">
+          {platform === "youtube" ? "YouTube" : "Twitch"} categories
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Select a streamer above to see and manage their categories.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -406,6 +443,7 @@ export function CategoryManager({
           streamers={streamers}
           streamerNameById={streamerNameById}
           onCategoriesChange={(next) => applyChange("official", next)}
+          lockedStreamerId={selectedStreamerId}
         />
       ) : (
         <div className="flex flex-col gap-2">
@@ -431,6 +469,7 @@ export function CategoryManager({
         streamers={streamers}
         streamerNameById={streamerNameById}
         onCategoriesChange={(next) => applyChange("queue", next)}
+        lockedStreamerId={selectedStreamerId}
       />
     </div>
   );
