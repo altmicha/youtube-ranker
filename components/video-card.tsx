@@ -8,6 +8,7 @@ import { formatRelativeTime } from "@/lib/relative-time";
 import { useVideoPlayer } from "@/lib/video-player-context";
 import { VideoEmbed } from "@/components/video-embed";
 import { TwitchEmbed } from "@/components/twitch-embed";
+import { TiktokEmbed } from "@/components/tiktok-embed";
 
 export function VideoCard({
   video,
@@ -34,14 +35,19 @@ export function VideoCard({
   const { playingId, toggle } = useVideoPlayer();
   const isPlaying = playingId === video.id;
   const isTwitch = video.source === "twitch";
+  const isTiktok = video.source === "tiktok";
 
   // Channel-equivalent label and a fallback title, source-aware:
   // YouTube videos have channel_name/youtube_id, Twitch clips have
-  // broadcaster_name/twitch_clip_slug — never both.
-  const attributionName = isTwitch ? video.broadcaster_name : video.channel_name;
+  // broadcaster_name/twitch_clip_slug, TikTok videos reuse
+  // broadcaster_name for the author's name and have tiktok_video_id —
+  // never more than one of the three id columns set on a given row.
+  const attributionName = isTwitch || isTiktok ? video.broadcaster_name : video.channel_name;
   const fallbackTitle = isTwitch
     ? `twitch.tv clip: ${video.twitch_clip_slug}`
-    : `youtube.com/watch?v=${video.youtube_id}`;
+    : isTiktok
+      ? `tiktok.com video: ${video.tiktok_video_id}`
+      : `youtube.com/watch?v=${video.youtube_id}`;
 
   // Requirement 4 (view/like/dislike, YouTube feature): only include
   // a stat if the API actually returned it — dislikeCount is almost
@@ -105,6 +111,11 @@ export function VideoCard({
                   Twitch
                 </Badge>
               )}
+              {isTiktok && (
+                <Badge className="border-transparent bg-black px-1.5 py-0 text-[10px] text-white">
+                  TikTok
+                </Badge>
+              )}
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                 {categoryName ?? "Uncategorized"}
               </Badge>
@@ -130,6 +141,12 @@ export function VideoCard({
           // the X button just calls it again, identical to clicking
           // the thumbnail/title a second time.
           <TwitchEmbed slug={video.twitch_clip_slug!} onClose={() => toggle(video.id)} />
+        ) : isTiktok ? (
+          <TiktokEmbed
+            videoId={video.tiktok_video_id!}
+            videoUrl={`https://www.tiktok.com/video/${video.tiktok_video_id}`}
+            onClose={() => toggle(video.id)}
+          />
         ) : (
           <VideoEmbed youtubeId={video.youtube_id!} />
         ))}

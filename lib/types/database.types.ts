@@ -12,7 +12,7 @@
 // safe to replace this file with a generated one later.
 
 export type UserRole = "user" | "creator" | "streamer" | "admin";
-export type VideoSource = "youtube" | "twitch";
+export type VideoSource = "youtube" | "twitch" | "tiktok";
 
 // Categories are a real, editable table now (creator-managed — see
 // app/actions/categories.ts) rather than a fixed enum. YouTube and
@@ -126,9 +126,16 @@ export interface Video {
   source: VideoSource;
   youtube_id: string | null;
   twitch_clip_slug: string | null;
+  // TikTok video id, e.g. "7123456789012345678" — null for YouTube/
+  // Twitch rows, same one-of-three-set pattern as youtube_id/
+  // twitch_clip_slug. Added by add_tiktok_platform.sql if missing.
+  tiktok_video_id: string | null;
   title: string | null;
   thumbnail_url: string | null;
   channel_name: string | null;
+  // Twitch broadcaster name, or a TikTok video's author name — the
+  // same column is reused for TikTok rather than adding a new one
+  // (see add_tiktok_platform.sql's submit_tiktok_video()).
   broadcaster_name: string | null;
   // The category's slug (e.g. "music", "lsf") — plain text, matched
   // directly against source + this value, no id/uuid involved. Kept

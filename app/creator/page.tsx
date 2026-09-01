@@ -45,10 +45,12 @@ export default async function CreatorDashboardPage() {
   const [
     { data: youtubeCategories },
     { data: twitchCategories },
+    { data: tiktokCategories },
     { data: streamers },
   ] = await Promise.all([
     supabase.from("categories").select("*").eq("platform", "youtube").order("name"),
     supabase.from("categories").select("*").eq("platform", "twitch").order("name"),
+    supabase.from("categories").select("*").eq("platform", "tiktok").order("name"),
     // One unified list — streamers aren't platform-scoped anymore.
     supabase.from("streamers").select("*").order("display_name"),
   ]);
@@ -73,12 +75,12 @@ export default async function CreatorDashboardPage() {
     });
   }
 
-  // Reuse the two category lists already fetched above to build a
+  // Reuse the three category lists already fetched above to build a
   // (source, category slug) -> name lookup — the same pair
   // submit/category pages use. category_id is vestigial/unreliable
   // now, so it's not used for this.
   const categoryNames = new Map(
-    [...(youtubeCategories ?? []), ...(twitchCategories ?? [])].map((c) => [
+    [...(youtubeCategories ?? []), ...(twitchCategories ?? []), ...(tiktokCategories ?? [])].map((c) => [
       `${c.platform}::${c.slug}`,
       c.name,
     ])
@@ -117,6 +119,7 @@ export default async function CreatorDashboardPage() {
         initialStreamers={streamers ?? []}
         initialYoutubeCategories={youtubeCategories ?? []}
         initialTwitchCategories={twitchCategories ?? []}
+        initialTiktokCategories={tiktokCategories ?? []}
         canManageOfficial={profile.role === "creator"}
         owners={ownerProfiles ?? []}
       />

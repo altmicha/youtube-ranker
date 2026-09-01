@@ -79,31 +79,26 @@ function StreamerSearchPicker({
   );
 }
 
-// Both are independent Client Components; without this wrapper,
-// adding a streamer in StreamerManager wouldn't show up in either
-// CategoryManager's streamer picker until a full page reload, since
-// they'd each only know about the props passed at initial server
-// render. This holds the one unified streamer list as shared state so
-// the obvious first use of this feature — add a streamer, then add a
-// category (of either type) for it — works in one sitting.
-//
 // Requirement 1/2: a single Streamers section/list — streamers are no
-// longer split by platform. Categories stay split into YouTube/Twitch
-// managers (that's still where "type: YouTube or Twitch" is picked,
-// per category — requirement 3), but both managers now draw from the
-// exact same streamer list, so any streamer can be picked for either.
+// longer split by platform. Categories stay split into YouTube/Twitch/
+// TikTok managers (that's still where "type: YouTube, Twitch, or
+// TikTok" is picked, per category — requirement 3), but all three
+// managers now draw from the exact same streamer list, so any
+// streamer can be picked for any of them.
 export function StreamerAndCategorySection({
   initialStreamers,
   initialYoutubeCategories,
   initialTwitchCategories,
+  initialTiktokCategories,
   canManageOfficial,
   owners,
 }: {
   initialStreamers: Streamer[];
   initialYoutubeCategories: Category[];
   initialTwitchCategories: Category[];
+  initialTiktokCategories: Category[];
   // Creator-only. Passed down from app/creator/page.tsx (which knows
-  // the current viewer's role) to both CategoryManagers, so a
+  // the current viewer's role) to all three CategoryManagers, so a
   // streamer viewing this page can still add Queue categories but
   // not Official ones — see canManageOfficial in CategoryManager.
   canManageOfficial: boolean;
@@ -134,7 +129,7 @@ export function StreamerAndCategorySection({
             onClear={() => setSelectedStreamerId("")}
           />
         </div>
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <CategoryManager
             platform="youtube"
             initialCategories={initialYoutubeCategories}
@@ -145,6 +140,13 @@ export function StreamerAndCategorySection({
           <CategoryManager
             platform="twitch"
             initialCategories={initialTwitchCategories}
+            streamers={streamers}
+            canManageOfficial={canManageOfficial}
+            selectedStreamerId={selectedStreamerId}
+          />
+          <CategoryManager
+            platform="tiktok"
+            initialCategories={initialTiktokCategories}
             streamers={streamers}
             canManageOfficial={canManageOfficial}
             selectedStreamerId={selectedStreamerId}

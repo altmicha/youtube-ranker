@@ -42,7 +42,8 @@ export function SubmitVideoForm({
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const platformLabel = platform === "youtube" ? "YouTube video" : "Twitch clip";
+  const platformLabel =
+    platform === "youtube" ? "YouTube video" : platform === "twitch" ? "Twitch clip" : "TikTok video";
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

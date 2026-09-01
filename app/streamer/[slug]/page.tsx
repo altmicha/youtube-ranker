@@ -16,7 +16,7 @@ import type { Category } from "@/lib/types/database.types";
 // Default order/visibility when streamers.layout is null. A section
 // id not present in whichever list actually gets used (default or
 // the streamer's own) is hidden entirely — see the render loop below.
-const DEFAULT_LAYOUT = ["hero", "featured", "youtube", "twitch", "queue"];
+const DEFAULT_LAYOUT = ["hero", "featured", "youtube", "twitch", "tiktok", "queue"];
 
 // One platform's cards within a section (official or queue). Hides
 // its own heading entirely when there's nothing to show — works for
@@ -27,16 +27,18 @@ function PlatformCards({
   platform,
   categories,
 }: {
-  platform: "youtube" | "twitch";
+  platform: "youtube" | "twitch" | "tiktok";
   categories: Category[];
 }) {
   const filtered = categories.filter((c) => c.platform === platform);
   if (filtered.length === 0) return null;
 
+  const label = platform === "youtube" ? "YouTube" : platform === "twitch" ? "Twitch" : "TikTok";
+
   return (
     <div>
       <h3 className="mb-2 text-sm font-semibold text-muted-foreground">
-        {platform === "youtube" ? "YouTube" : "Twitch"}
+        {label}
       </h3>
       <StreamerCategoryList categories={filtered} />
     </div>
@@ -197,6 +199,7 @@ export default async function StreamerPage({
     featured: <FeaturedClipsSection clips={featuredClips} />,
     youtube: <PlatformCards platform="youtube" categories={officialCategories} />,
     twitch: <PlatformCards platform="twitch" categories={officialCategories} />,
+    tiktok: <PlatformCards platform="tiktok" categories={officialCategories} />,
     queue: (
       <div>
         <h2 className="mb-3 text-lg font-semibold">
@@ -205,6 +208,7 @@ export default async function StreamerPage({
         <div className="flex flex-col gap-4">
           <PlatformCards platform="youtube" categories={queueCategories} />
           <PlatformCards platform="twitch" categories={queueCategories} />
+          <PlatformCards platform="tiktok" categories={queueCategories} />
         </div>
       </div>
     ),
@@ -221,6 +225,7 @@ export default async function StreamerPage({
     featured: featuredClips.length > 0,
     youtube: officialCategories.some((c) => c.platform === "youtube"),
     twitch: officialCategories.some((c) => c.platform === "twitch"),
+    tiktok: officialCategories.some((c) => c.platform === "tiktok"),
     queue: queueCategories.length > 0,
   };
 

@@ -4,11 +4,13 @@ import { categoryImageUrl } from "@/lib/category-image";
 
 // Deliberately separate from components/category-grid.tsx rather than
 // reusing/modifying it: CategoryGrid takes one basePath for the whole
-// list (it's only ever used on /youtube or /twitch, where every card
-// is the same platform). A streamer's categories can span both
-// platforms, so each card here computes its own /youtube/<slug> or
-// /twitch/<slug> href from that category's own `platform`. This keeps
-// /youtube and /twitch completely untouched.
+// list (it's only ever used on /youtube, /twitch, or /tiktok, where
+// every card is the same platform). A streamer's categories can span
+// all three platforms, so each card here computes its own
+// /youtube/<slug>, /twitch/<slug>, or /tiktok/<slug> href from that
+// category's own `platform`. This keeps /youtube, /twitch, and
+// /tiktok completely untouched — this file is the only thing that
+// changed to fix TikTok cards routing to the wrong platform.
 const GRADIENT_PALETTE = [
   "bg-gradient-to-br from-violet-500 to-purple-700",
   "bg-gradient-to-br from-rose-500 to-pink-700",
@@ -45,12 +47,21 @@ export function StreamerCategoryList({ categories }: { categories: Category[] })
     <div className="flex flex-wrap gap-3">
       {categories.map((category) => {
         const imageUrl = categoryImageUrl(category.image_path);
-        const basePath = category.platform === "youtube" ? "/youtube" : "/twitch";
+        // Requirement fix: this was a binary youtube/twitch ternary
+        // with no third branch, so every TikTok category fell through
+        // to the "else" case and linked to /twitch/<slug> — same bug
+        // in the label below. Now a real 3-way branch on
+        // category.platform.
+        const basePath =
+          category.platform === "youtube" ? "/youtube" : category.platform === "twitch" ? "/twitch" : "/tiktok";
+        const platformLabel =
+          category.platform === "youtube" ? "YouTube" : category.platform === "twitch" ? "Twitch" : "TikTok";
         // Requirement: official "funny clips" and queue "funny clips"
         // can now share a slug for the same streamer+platform — the
         // ?kind= param is what keeps their links from colliding on
-        // the exact same /youtube/<slug> destination. Omitted for
-        // "official" so those URLs stay exactly as they always looked.
+        // the exact same /<platform>/<slug> destination. Omitted for
+        // "official" so those URLs stay exactly as they always looked
+        // — same convention applied to TikTok, not a special case.
         const href =
           category.kind === "queue"
             ? `${basePath}/${category.slug}?kind=queue`
@@ -74,7 +85,7 @@ export function StreamerCategoryList({ categories }: { categories: Category[] })
             </div>
             <div className="mt-1 truncate text-sm">{category.name}</div>
             <div className="text-[11px] text-muted-foreground">
-              {category.platform === "youtube" ? "YouTube" : "Twitch"}
+              {platformLabel}
             </div>
           </Link>
         );

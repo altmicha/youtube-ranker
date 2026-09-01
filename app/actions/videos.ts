@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile, canSubmitOnCategoryPage } from "@/lib/auth/roles";
 import { extractYoutubeId, fetchYoutubeMetadata } from "@/lib/youtube";
 import { extractTwitchClipSlug, fetchTwitchClipMetadata } from "@/lib/twitch";
+import { extractTiktokVideoId, fetchTiktokMetadata } from "@/lib/tiktok";
 import { isTopDailyClipsCategory } from "@/lib/top-daily-clips";
 import type { VideoSource, CategoryKind } from "@/lib/types/database.types";
 
@@ -31,30 +32,41 @@ export async function submitVideo(
   const trimmed = url.trim();
   if (!trimmed) {
     return {
-      error: platform === "youtube" ? "Paste a YouTube URL first." : "Paste a Twitch clip URL first.",
+      error:
+        platform === "youtube"
+          ? "Paste a YouTube URL first."
+          : platform === "twitch"
+            ? "Paste a Twitch clip URL first."
+            : "Paste a TikTok video URL first.",
     };
   }
 
-  // Detect YouTube vs Twitch from the URL, then check it matches the
-  // page the form was submitted from — pasting the wrong type of
-  // link on either page is a clear error rather than silently
+  // Detect YouTube vs Twitch vs TikTok from the URL, then check it
+  // matches the page the form was submitted from — pasting the wrong
+  // type of link on any page is a clear error rather than silently
   // accepting it or guessing which page they "meant".
   const youtubeId = extractYoutubeId(trimmed);
   const twitchSlug = youtubeId ? null : extractTwitchClipSlug(trimmed);
+  const tiktokId = youtubeId || twitchSlug ? null : extractTiktokVideoId(trimmed);
 
-  if (!youtubeId && !twitchSlug) {
+  if (!youtubeId && !twitchSlug && !tiktokId) {
     return {
       error:
         platform === "youtube"
           ? "That doesn't look like a valid YouTube video URL."
-          : "That doesn't look like a valid Twitch clip URL.",
+          : platform === "twitch"
+            ? "That doesn't look like a valid Twitch clip URL."
+            : "That doesn't look like a valid TikTok video URL.",
     };
   }
   if (platform === "youtube" && !youtubeId) {
-    return { error: "That's a Twitch clip URL — submit it on the Twitch page instead." };
+    return { error: "That's not a YouTube URL — submit it on the matching platform's page instead." };
   }
   if (platform === "twitch" && !twitchSlug) {
-    return { error: "That's a YouTube URL — submit it on the YouTube page instead." };
+    return { error: "That's not a Twitch clip URL — submit it on the matching platform's page instead." };
+  }
+  if (platform === "tiktok" && !tiktokId) {
+    return { error: "That's not a TikTok video URL — submit it on the matching platform's page instead." };
   }
 
   const supabase = await createClient();
@@ -135,7 +147,10 @@ export async function submitVideo(
   if (youtubeId) {
     return submitYoutubeVideo(supabase, youtubeId, categorySlug);
   }
-  return submitTwitchClip(supabase, twitchSlug!, categorySlug);
+  if (twitchSlug) {
+    return submitTwitchClip(supabase, twitchSlug, categorySlug);
+  }
+  return submitTiktokVideo(supabase, tiktokId!, trimmed, categorySlug);
 }
 
 // Awaited return type of createClient() — kept local rather than
@@ -238,6 +253,49 @@ async function submitTwitchClip(
   return { success: true };
 }
 
+async function submitTiktokVideo(
+  supabase: SupabaseServerClient,
+  videoId: string,
+  originalUrl: string,
+  categorySlug: string
+): Promise<SubmitVideoResult> {
+  // Fetch title/thumbnail/author from TikTok's oEmbed endpoint. Same
+  // fail-open contract as the other two: never throws, returns null
+  // on any failure, so a metadata failure never blocks the submission
+  // itself. Note there's no view count here at all — TikTok's oEmbed
+  // response doesn't include one, unlike YouTube/Twitch.
+  const metadata = await fetchTiktokMetadata(originalUrl);
+
+  const { error } = await supabase.rpc("submit_tiktok_video", {
+    p_video_id: videoId,
+    p_title: metadata?.title ?? null,
+    p_thumbnail_url: metadata?.thumbnailUrl ?? null,
+    p_author_name: metadata?.authorName ?? null,
+    p_category: categorySlug,
+    p_published_at: null,
+  });
+
+  if (error) {
+    console.error("submitTiktokVideo: submit_tiktok_video RPC failed", {
+      videoId,
+      categorySlug,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    if (error.code === "23505") {
+      return { error: "You've already submitted this video." };
+    }
+    return { error: `Could not save video: ${error.message}` };
+  }
+
+  revalidatePath("/tiktok");
+  revalidatePath("/tiktok/[slug]", "page");
+  revalidatePath("/creator");
+  return { success: true };
+}
+
 export type RemoveVideoResult = { error: string } | { success: true };
 
 export async function removeVideo(videoId: string): Promise<RemoveVideoResult> {
@@ -271,6 +329,8 @@ export async function removeVideo(videoId: string): Promise<RemoveVideoResult> {
   revalidatePath("/youtube/[slug]", "page");
   revalidatePath("/twitch");
   revalidatePath("/twitch/[slug]", "page");
+  revalidatePath("/tiktok");
+  revalidatePath("/tiktok/[slug]", "page");
   revalidatePath("/creator");
   return { success: true };
 }

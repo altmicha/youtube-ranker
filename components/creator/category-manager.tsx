@@ -404,6 +404,8 @@ export function CategoryManager({
 }) {
   const [categories, setCategories] = useState(initialCategories);
 
+  const platformLabel = platform === "youtube" ? "YouTube" : platform === "twitch" ? "Twitch" : "TikTok";
+
   const visible = selectedStreamerId
     ? categories.filter((c) => c.streamer_id === selectedStreamerId)
     : [];
@@ -419,7 +421,7 @@ export function CategoryManager({
     return (
       <div className="flex flex-col gap-4">
         <h3 className="text-sm font-semibold">
-          {platform === "youtube" ? "YouTube" : "Twitch"} categories
+          {platformLabel} categories
         </h3>
         <p className="text-sm text-muted-foreground">
           Select a streamer above to see and manage their categories.
@@ -431,7 +433,7 @@ export function CategoryManager({
   return (
     <div className="flex flex-col gap-4">
       <h3 className="text-sm font-semibold">
-        {platform === "youtube" ? "YouTube" : "Twitch"} categories
+        {platformLabel} categories
       </h3>
 
       {canManageOfficial ? (
