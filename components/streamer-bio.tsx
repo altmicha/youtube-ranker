@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { updateStreamerBio, updateStreamerLinks } from "@/app/actions/streamer-bio";
+import { detectLinkBrand } from "@/lib/link-brand";
 import { cn } from "@/lib/utils";
 import type { StreamerLink } from "@/lib/types/database.types";
 
@@ -192,21 +193,37 @@ export function StreamerBio({
       ) : (
         <div className="flex flex-col gap-1.5">
           {/* Requirement: labels as links/buttons, never the raw URL —
-              {link.label} is the only visible text; link.url only
-              ever appears in href. */}
+              {link.label} is the only visible text (kept exactly as
+              the streamer typed it — this doesn't touch that), and
+              link.url only ever appears in href. Icon + brand color
+              are detected purely from the URL's hostname, not stored
+              or saved anywhere — this is a display-only enhancement. */}
           {links.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {links.map((link, index) => (
-                <a
-                  key={index}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                >
-                  {link.label}
-                </a>
-              ))}
+              {links.map((link, index) => {
+                const brand = detectLinkBrand(link.url);
+                return (
+                  <a
+                    key={index}
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+                  >
+                    <span
+                      className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: brand.color ?? undefined }}
+                    >
+                      {brand.color ? (
+                        brand.icon
+                      ) : (
+                        <span className="text-muted-foreground">{brand.icon}</span>
+                      )}
+                    </span>
+                    {link.label}
+                  </a>
+                );
+              })}
             </div>
           )}
           {canEdit && (
