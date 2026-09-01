@@ -12,9 +12,12 @@ import type { Video } from "@/lib/types/database.types";
 // Extracted out of components/streamer-hero.tsx — streamers.layout
 // treats "hero" and "featured" as two independently orderable/
 // hideable sections, so they can no longer be fused into one
-// component the way they were. All the behavior (compact list capped
-// at ~420px, re-click toggle, X-button close, fade in/out with no
-// empty box left behind) is unchanged from before, just moved here.
+// component the way they were. Compact list (capped at ~420px),
+// re-click toggle, X-button close, and fade in/out with no empty box
+// left behind are all unchanged from before. The embed itself now
+// opens as a centered modal overlay instead of an inline block below
+// the list — see the render section at the bottom — so watching a
+// clip and picking another doesn't require scrolling down and back up.
 const FADE_MS = 200;
 
 export function FeaturedClipsSection({ clips }: { clips: Video[] }) {
@@ -95,15 +98,34 @@ export function FeaturedClipsSection({ clips }: { clips: Video[] }) {
         </div>
       </div>
 
+      {/* Requirement: overlay stays fullscreen and dimmed — only the
+          player box itself is sized down here, via inline style
+          (75vw, max-width 1100px isn't a standard Tailwind scale
+          value, so a utility class can't express it exactly; this
+          also sidesteps any risk of a Tailwind class not being
+          generated for a non-standard size). Backdrop click closes
+          it; the X inside TwitchEmbed also closes it (same onClose it
+          already had); clicking the player box itself does not close
+          it (stopPropagation). Fade in/out timing unchanged. */}
       {mountedClip && (
-        <Card
+        <div
           className={cn(
-            "overflow-hidden transition-opacity duration-200",
+            "fixed inset-0 z-50 flex items-center justify-center p-4 transition-opacity duration-200",
             faded ? "opacity-100" : "opacity-0"
           )}
+          onClick={() => setPlayingId(null)}
         >
-          <TwitchEmbed slug={mountedClip.twitch_clip_slug!} onClose={() => setPlayingId(null)} />
-        </Card>
+          <div className="absolute inset-0 bg-black/70" />
+          <div
+            className="relative z-10"
+            style={{ width: "75vw", maxWidth: "1100px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Card className="overflow-hidden">
+              <TwitchEmbed slug={mountedClip.twitch_clip_slug!} onClose={() => setPlayingId(null)} />
+            </Card>
+          </div>
+        </div>
       )}
     </div>
   );
